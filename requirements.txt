@@ -13,6 +13,6 @@ jupyterlab
 matplotlib
 h5py
 pytorch-lightning==1.3.5
-loguru
 joblib>=1.0.1
 torchmetrics==0.4
+protobuf==3.20.*
