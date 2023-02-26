@@ -14,8 +14,10 @@ from pytorch_lightning.plugins import DDPPlugin
 from src.config.default import get_cfg_defaults
 from src.utils.misc import get_rank_zero_only_logger, setup_gpus
 from src.utils.profiler import build_profiler
-from src.lightning.data import MultiSceneDataModule
+# from src.lightning.data import MultiSceneDataModule
 from src.lightning.lightning_aspanformer import PL_ASpanFormer
+
+from fine_tuning.datamodule import MultiSceneDataModule
 
 loguru_logger = get_rank_zero_only_logger(loguru_logger)
 
@@ -126,7 +128,7 @@ def main():
         profiler=profiler)
     loguru_logger.info(f"Trainer initialized!")
     loguru_logger.info(f"Start training!")
-    # trainer.fit(model, datamodule=data_module)
+    trainer.fit(model, datamodule=data_module)
 
 
 if __name__ == '__main__':

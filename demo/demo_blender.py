@@ -48,9 +48,9 @@ if __name__=='__main__':
     img0_g,img1_g=demo_utils.resize(img0_g,args.long_dim0),demo_utils.resize(img1_g,args.long_dim1)
     data={'image0':torch.from_numpy(img0_g/255.)[None,None].cuda().float(),
           'image1':torch.from_numpy(img1_g/255.)[None,None].cuda().float()}
-    print("yaavvvavaabababvbababavava")
-    print(torch.from_numpy(img0_g/255.).shape)
-    print(torch.from_numpy(img0_g/255.)[None,None].shape)
+    # print("yaavvvavaabababvbababavava")
+    # print(torch.from_numpy(img0_g/255.).shape)
+    # print(torch.from_numpy(img0_g/255.)[None,None].shape)
     with torch.no_grad():   
       matcher(data,online_resize=True)
       corr0,corr1=data['mkpts0_f'].cpu().numpy(),data['mkpts1_f'].cpu().numpy()
