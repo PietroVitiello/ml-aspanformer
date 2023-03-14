@@ -30,3 +30,5 @@ scripts/sbatch_submit.sh
 src/utils/client.py
 
 scannet_indices/
+
+wandb/
