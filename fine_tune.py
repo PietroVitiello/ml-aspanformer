@@ -16,8 +16,9 @@ from src.utils.misc import get_rank_zero_only_logger, setup_gpus
 from src.utils.profiler import build_profiler
 # from src.lightning.data import MultiSceneDataModule
 from src.lightning.lightning_aspanformer import PL_ASpanFormer
+from fine_tuning.preprocessing import get_resize_modality_name
 
-from fine_tuning.datamodule import MultiSceneDataModule
+from fine_tuning.datamodule import BlenderDataModule
 
 loguru_logger = get_rank_zero_only_logger(loguru_logger)
 
@@ -28,22 +29,39 @@ def parse_args():
     # check documentation: https://pytorch-lightning.readthedocs.io/en/latest/common/trainer.html#trainer-flags
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    parser.add_argument(
+        '-name', '--model_name', type=str, default=None, required=True,
+        help='options: [inference, pytorch], or leave it unset')
+    parser.add_argument(
+        '-resize_m', '--resize_modality', type=int, default=0, required=False,
+        help='Set the modality used to resize the images. Options: [0-5]')
+    parser.add_argument(
+        '-mask', '--use_masks', action='store_true',
+        help='Whether to upload the training information to weights and biases')
+    parser.add_argument(
+        '-wandb', '--use_wandb', action='store_true',
+        help='Whether to upload the training information to weights and biases')
+    parser.add_argument(
+        '-bs', '--batch_size', type=int, default=4, help='batch_size per gpu')
+    parser.add_argument(
+        '-bs_val', '--batch_size_val', type=int, default=None, help='validation set batch_size per gpu')
+    parser.add_argument(
+        '-nw', '--num_workers', type=int, default=0)
+    parser.add_argument(
+        '--pin_memory', type=lambda x: bool(strtobool(x)),
+        nargs='?', default=False, help='whether loading data to pinned memory or not')
+    parser.add_argument(
+        '--exp_name', type=str, default='trying_out')
+    
     parser.add_argument(
         '--data_cfg_path', type=str, help='data config path', default="configs/data/scannet_trainval.py")
     parser.add_argument(
         '--main_cfg_path', type=str, help='main config path', default="configs/aspan/indoor/aspan_train.py")
     parser.add_argument(
-        '--exp_name', type=str, default='default_exp_name')
-    parser.add_argument(
-        '--batch_size', type=int, default=4, help='batch_size per gpu')
-    parser.add_argument(
-        '--num_workers', type=int, default=4)
-    parser.add_argument(
-        '--pin_memory', type=lambda x: bool(strtobool(x)),
-        nargs='?', default=True, help='whether loading data to pinned memory or not')
-    parser.add_argument(
         '--ckpt_path', type=str, default=Path("weights/indoor.ckpt"),
         help='pretrained checkpoint path, helpful for using a pre-trained coarse-only ASpanFormer')
+    
     parser.add_argument(
         '--disable_ckpt', action='store_true',
         help='disable checkpoint saving (useful for debugging).')
@@ -52,7 +70,7 @@ def parse_args():
         help='options: [inference, pytorch], or leave it unset')
     parser.add_argument(
         '--parallel_load_data', action='store_true',
-        help='load datasets in with multiple processes.')
+        help='load datasets in with multiple processes.')    
     parser.add_argument(
         '--mode', type=str, default='vanilla',
         help='pretrained checkpoint path, helpful for using a pre-trained coarse-only ASpanFormer')
@@ -61,13 +79,19 @@ def parse_args():
         help='pretrained checkpoint path, helpful for using a pre-trained coarse-only ASpanFormer')
 
     parser = pl.Trainer.add_argparse_args(parser)
+    '''
+    Useful Trainer arguments:
+        - log_every_n_steps
+        - max_epochs
+        - gpus
+    '''
     return parser.parse_args()
 
 
 def main():
     # parse arguments
     args = parse_args()
-    rank_zero_only(pprint.pprint)(vars(args))
+    # rank_zero_only(pprint.pprint)(vars(args))
 
     # init default-cfg and merge it with the main- and data-cfg
     config = get_cfg_defaults()
@@ -86,14 +110,22 @@ def main():
     config.TRAINER.TRUE_LR = config.TRAINER.CANONICAL_LR * _scaling
     config.TRAINER.WARMUP_STEP = math.floor(
         config.TRAINER.WARMUP_STEP / _scaling)
+    
+    config.MODEL.NAME = args.model_name
+    config.MODEL.MASK = args.use_masks
+    config.MODEL.RESIZE = get_resize_modality_name(args.resize_modality)
+    config.TRAINER.MAX_EPOCHS = args.max_epochs
+    if args.batch_size_val is None:
+        args.batch_size_val = args.batch_size
 
     # lightning module
     profiler = build_profiler(args.profiler_name)
-    model = PL_ASpanFormer(config, pretrained_ckpt=args.ckpt_path, profiler=profiler)
+    model = PL_ASpanFormer(config, pretrained_ckpt=args.ckpt_path, profiler=profiler, use_wandb=args.use_wandb)
     loguru_logger.info(f"ASpanFormer LightningModule initialized!")
 
     # lightning data
-    data_module = MultiSceneDataModule(args, config)
+    # data_module = MultiSceneDataModule(args, config)
+    data_module = BlenderDataModule(args, config)
     loguru_logger.info(f"ASpanFormer DataModule initialized!")
 
     # TensorBoard Logger

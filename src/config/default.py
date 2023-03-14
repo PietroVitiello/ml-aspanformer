@@ -172,6 +172,13 @@ _CN.TRAINER.GRADIENT_CLIPPING = 0.5
 # are used during training on ScanNet. (60M pairs of images sampled during traing from 230M pairs in total.)
 _CN.TRAINER.SEED = 66
 
+# ADDED BY PietroVitiello
+_CN.MODEL = CN()
+_CN.MODEL.NAME = None
+_CN.MODEL.MASK = None
+_CN.MODEL.RESIZE = None
+_CN.TRAINER.MAX_EPOCHS = None
+
 
 def get_cfg_defaults():
     """Get a yacs CfgNode object with default values for my_project."""

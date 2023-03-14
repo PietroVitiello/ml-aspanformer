@@ -35,19 +35,28 @@ def spvs_coarse(data, config):
         - for scannet dataset, there're 3 kinds of resolution {i, c, f}
         - for megadepth dataset, there're 4 kinds of resolution {i, i_resize, c, f}
     """
+    print("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n Coarse GT")
     # 1. misc
     device = data['image0'].device
     N, _, H0, W0 = data['image0'].shape
+    # print(f"n, H0, W0: {N, H0, W0}")
     _, _, H1, W1 = data['image1'].shape
     scale = config['ASPAN']['RESOLUTION'][0]
     scale0 = scale * data['scale0'][:, None] if 'scale0' in data else scale
     scale1 = scale * data['scale1'][:, None] if 'scale0' in data else scale
     h0, w0, h1, w1 = map(lambda x: x // scale, [H0, W0, H1, W1])
+    # print(scale0, 1/8, 1/16)
+    # print(h0, w0, h1, w1)
+    # print("\n")
 
     # 2. warp grids
     # create kpts in meshgrid and resize them to image resolution
     grid_pt0_c = create_meshgrid(h0, w0, False, device).reshape(1, h0*w0, 2).repeat(N, 1, 1)    # [N, hw, 2]
+    # print(grid_pt0_c)
+    # print("\n")
     grid_pt0_i = scale0 * grid_pt0_c
+    # print(grid_pt0_i)
+    # print("\n")
     grid_pt1_c = create_meshgrid(h1, w1, False, device).reshape(1, h1*w1, 2).repeat(N, 1, 1)
     grid_pt1_i = scale1 * grid_pt1_c
 
@@ -61,20 +70,28 @@ def spvs_coarse(data, config):
     # (unhandled edge case: points with 0-depth will be warped to the left-up corner)
     _, w_pt0_i = warp_kpts(grid_pt0_i, data['depth0'], data['depth1'], data['T_0to1'], data['K0'], data['K1'])
     _, w_pt1_i = warp_kpts(grid_pt1_i, data['depth1'], data['depth0'], data['T_1to0'], data['K1'], data['K0'])
+    # print("\n")
+    # print(w_pt0_i)
     w_pt0_c = w_pt0_i / scale1
     w_pt1_c = w_pt1_i / scale0
+    print(f"keypoints: {w_pt0_c.shape}")
 
     # 3. check if mutual nearest neighbor
     w_pt0_c_round = w_pt0_c[:, :, :].round().long()
+    print(f"keypoints rounded: {w_pt0_c_round.shape}")
     nearest_index1 = w_pt0_c_round[..., 0] + w_pt0_c_round[..., 1] * w1
+    print(f"nearest: {nearest_index1.shape}")
     w_pt1_c_round = w_pt1_c[:, :, :].round().long()
     nearest_index0 = w_pt1_c_round[..., 0] + w_pt1_c_round[..., 1] * w0
+    # print(nearest_index0)
 
     # corner case: out of boundary
     def out_bound_mask(pt, w, h):
         return (pt[..., 0] < 0) + (pt[..., 0] >= w) + (pt[..., 1] < 0) + (pt[..., 1] >= h)
+    print(f"out of bounds mask: {out_bound_mask(w_pt0_c_round, w1, h1).shape}")
     nearest_index1[out_bound_mask(w_pt0_c_round, w1, h1)] = 0
     nearest_index0[out_bound_mask(w_pt1_c_round, w0, h0)] = 0
+    # print(nearest_index0)
 
     loop_back = torch.stack([nearest_index0[_b][_i] for _b, _i in enumerate(nearest_index1)], dim=0)
     correct_0to1 = loop_back == torch.arange(h0*w0, device=device)[None].repeat(N, 1)
@@ -112,7 +129,7 @@ def spvs_coarse(data, config):
 def compute_supervision_coarse(data, config):
     assert len(set(data['dataset_name'])) == 1, "Do not support mixed datasets training!"
     data_source = data['dataset_name'][0]
-    if data_source.lower() in ['scannet', 'megadepth']:
+    if data_source.lower() in ['scannet', 'megadepth', 'blender']:
         spvs_coarse(data, config)
     else:
         raise ValueError(f'Unknown data source: {data_source}')
@@ -135,17 +152,19 @@ def spvs_fine(data, config):
 
     # 2. get coarse prediction
     b_ids, i_ids, j_ids = data['b_ids'], data['i_ids'], data['j_ids']
+    print(f"b_ids: {len(b_ids)}")
 
     # 3. compute gt
     scale = scale * data['scale1'][b_ids] if 'scale0' in data else scale
     # `expec_f_gt` might exceed the window, i.e. abs(*) > 1, which would be filtered later
     expec_f_gt = (w_pt0_i[b_ids, i_ids] - pt1_i[b_ids, j_ids]) / scale / radius  # [M, 2]
+    print(f"Fine gt: {expec_f_gt.shape}")
     data.update({"expec_f_gt": expec_f_gt})
 
 
 def compute_supervision_fine(data, config):
     data_source = data['dataset_name'][0]
-    if data_source.lower() in ['scannet', 'megadepth']:
+    if data_source.lower() in ['scannet', 'megadepth', 'blender']:
         spvs_fine(data, config)
     else:
         raise NotImplementedError

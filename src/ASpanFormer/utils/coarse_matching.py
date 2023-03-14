@@ -211,7 +211,9 @@ class CoarseMatching(nn.Module):
             if 'mask0' not in data:
                 num_candidates_max = mask.size(0) * max(
                     mask.size(1), mask.size(2))
+                # print(f"\n\n\n\n\n\n\n mask {mask.shape}")
             else:
+                # print(f"\n\n\n\n\n\n\n mask {data['mask0'].shape}")
                 num_candidates_max = compute_max_candidates(
                     data['mask0'], data['mask1'])
             num_matches_train = int(num_candidates_max *

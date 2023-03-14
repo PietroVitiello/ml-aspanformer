@@ -10,6 +10,8 @@ def _compute_conf_thresh(data):
         thr = 5e-4
     elif dataset_name == 'megadepth' or dataset_name=='gl3d':
         thr = 1e-4
+    elif dataset_name == 'blender':
+        thr = 1e-4
     else:
         raise ValueError(f'Unknown dataset: {dataset_name}')
     return thr

@@ -18,7 +18,7 @@ def warp_kpts(kpts0, depth0, depth1, T_0to1, K0, K1):
         calculable_mask (torch.Tensor): [N, L]
         warped_keypoints0 (torch.Tensor): [N, L, 2] <x0_hat, y1_hat>
     """
-    kpts0_long = kpts0.round().long()
+    kpts0_long = kpts0.round().long() # Batch, u, v
 
     # Sample depth, get calculable_mask on depth != 0
     kpts0_depth = torch.stack(
@@ -44,11 +44,16 @@ def warp_kpts(kpts0, depth0, depth1, T_0to1, K0, K1):
         (w_kpts0[:, :, 1] > 0) * (w_kpts0[:, :, 1] < h-1)
     w_kpts0_long = w_kpts0.long()
     w_kpts0_long[~covisible_mask, :] = 0
+    # print(f"kpts: {w_kpts0_long.shape}")
+    # print(f"covisible: {w_kpts0_long[w_kpts0_long != 0].shape}")
+
 
     w_kpts0_depth = torch.stack(
         [depth1[i, w_kpts0_long[i, :, 1], w_kpts0_long[i, :, 0]] for i in range(w_kpts0_long.shape[0])], dim=0
     )  # (N, L)
-    consistent_mask = ((w_kpts0_depth - w_kpts0_depth_computed) / w_kpts0_depth).abs() < 0.2
+    consistent_mask = ((w_kpts0_depth - w_kpts0_depth_computed) / w_kpts0_depth).abs() < 0.02 #0.2
+    # print(f"consistent: {(consistent_mask[consistent_mask == 1]).shape}")
     valid_mask = nonzero_mask * covisible_mask * consistent_mask
+    # print(f"valid: {(valid_mask[valid_mask == 1]).shape} \n")
 
     return valid_mask, w_kpts0
