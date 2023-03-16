@@ -101,6 +101,7 @@ def spvs_coarse(data, config):
     conf_matrix_gt = torch.zeros(N, h0*w0, h1*w1, device=device)
     b_ids, i_ids = torch.where(correct_0to1 != 0)
     j_ids = nearest_index1[b_ids, i_ids]
+    print(f"coarse b_ids: {len(b_ids)}")
 
     conf_matrix_gt[b_ids, i_ids, j_ids] = 1
     data.update({'conf_matrix_gt': conf_matrix_gt})
@@ -151,6 +152,8 @@ def spvs_fine(data, config):
     radius = config['ASPAN']['FINE_WINDOW_SIZE'] // 2
 
     # 2. get coarse prediction
+    for k in data.keys():
+        print(k)
     b_ids, i_ids, j_ids = data['b_ids'], data['i_ids'], data['j_ids']
     print(f"b_ids: {len(b_ids)}")
 

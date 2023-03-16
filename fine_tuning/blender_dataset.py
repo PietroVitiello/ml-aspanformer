@@ -40,6 +40,7 @@ class BlenderDataset(Dataset):
         self.coarse_scale = 0.125 #for training LoFTR
 
     def __len__(self):
+        print(len(np.sort(glob.glob(os.path.join(self.dataset_dir, 'scene_*')))))
         return len(np.sort(glob.glob(os.path.join(self.dataset_dir, 'scene_*'))))
         # return len(next(os.walk(self.dataset_dir))[1])
     
@@ -208,16 +209,16 @@ class BlenderDataset(Dataset):
         #     shuffle_matches=True
         # )
         
-        plt.figure()
-        plt.imshow(crop_data["depth_0"] * crop_data["seg_0"])
-        plt.figure()
-        plt.imshow(crop_data["gray_0"][0] * crop_data["seg_0"])
+        # plt.figure()
+        # plt.imshow(crop_data["depth_0"] * crop_data["seg_0"])
+        # plt.figure()
+        # plt.imshow(crop_data["gray_0"][0] * crop_data["seg_0"])
         # plt.show()
         
-        # crop_data["depth_0"] = crop_data["depth_0"].astype(np.float16) / 1e3
-        # crop_data["depth_1"] = crop_data["depth_1"].astype(np.float16) / 1e3
-        crop_data["depth_0"] = crop_data["depth_0"].astype(np.float16) * crop_data["seg_0"]
-        crop_data["depth_1"] = crop_data["depth_1"].astype(np.float16) * crop_data["seg_1"]
+        crop_data["depth_0"] = crop_data["depth_0"].astype(np.float16) / 1e3
+        crop_data["depth_1"] = crop_data["depth_1"].astype(np.float16) / 1e3
+        # crop_data["depth_0"] = crop_data["depth_0"].astype(np.float16) * crop_data["seg_0"]
+        # crop_data["depth_1"] = crop_data["depth_1"].astype(np.float16) * crop_data["seg_1"]
         
         data = {
             'image0': crop_data["gray_0"].astype(np.float32),   # (1, h, w)

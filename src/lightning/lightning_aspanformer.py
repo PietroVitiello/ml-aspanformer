@@ -292,7 +292,7 @@ class PL_ASpanFormer(pl.LightningModule):
                         for plot_idx, fig in enumerate(v):
                             self.logger.experiment.add_figure(
                                 f'val_match_{valset_idx}/{k}/pair-{plot_idx}', fig, cur_epoch, close=True)
-                            plt.show()
+                            # plt.show()
                             if self.use_wandb:
                                 fig.canvas.draw()
                                 w, h = fig.canvas.get_width_height()
