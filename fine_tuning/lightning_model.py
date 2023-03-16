@@ -1,7 +1,9 @@
+
 from collections import defaultdict
 import pprint
 from loguru import logger
 from pathlib import Path
+import wandb
 
 import torch
 import numpy as np
@@ -24,7 +26,12 @@ from src.utils.profiler import PassThroughProfiler
 
 
 class PL_ASpanFormer(pl.LightningModule):
-    def __init__(self, config, pretrained_ckpt=None, profiler=None, dump_dir=None):
+    def __init__(self,
+                 config,
+                 pretrained_ckpt=None,
+                 profiler=None,
+                 dump_dir=None,
+                 use_wandb: bool = True):
         """
         TODO:
             - use the new version of PL logging API.
@@ -52,6 +59,58 @@ class PL_ASpanFormer(pl.LightningModule):
         
         # Testing
         self.dump_dir = dump_dir
+
+        self.use_wandb = use_wandb
+        if use_wandb:
+            entity = "head-dome"
+            print(f'Connecting with {entity} on wandb')
+            wandb.init(
+                project="headcam-dome",
+                name=config.MODEL.NAME,
+                entity=entity,
+                reinit=True,
+                tags=["ASpanFormer"]
+            )
+            wandb.config = {
+                "learning_rate": config.TRAINER.TRUE_LR,
+                "epochs": config.TRAINER.MAX_EPOCHS,
+                "batch_size": config.TRAINER.TRUE_BATCH_SIZE,
+                "using_segmask": config.MODEL.MASK,
+                "resize_modality": config.MODEL.RESIZE,
+            }
+            wandb.watch(self.matcher, log='all', log_freq=1)
+
+        self.log_step = 0
+        self.train_epoch_loss = None
+
+    def wandb_log_epochs(self, data: dict, stage: str='train'):
+        # print(data.keys())
+        # print(data)
+        if stage == 'train':
+            loss_data = data["loss_scalars"]
+            flow_losses = {}
+            for loss_key in [key for key in loss_data.keys() if key.startswith("loss_flow_")]:
+                id = loss_key.split('_')[-1]
+                flow_losses.update({f"train_flow_loss_{id}": loss_data[loss_key]})
+            wandb.log({"epoch": self.current_epoch,
+                       "step": self.log_step,
+                       "train_coarse_loss": loss_data["loss_c"],
+                       "train_fine_loss": loss_data["loss_f"],
+                       **flow_losses,
+                       "train_loss_stepwise": loss_data["loss"],
+                    #    "lr": self.optim.param_groups[0]["lr"]
+                    })
+            
+        elif stage == 'val':
+            data.update({
+                "epoch": self.current_epoch,
+                "train_loss": self.train_epoch_loss,
+                # "lr": self.optim.param_groups[0]["lr"]
+            })
+            wandb.log(data)
+        else:
+            print("[WANDB] Incorrect logging stage")
+        self.log_step += 1
         
     def configure_optimizers(self):
         # FIXME: The scheduler did not work properly when `--resume_from_checkpoint`
@@ -153,6 +212,12 @@ class PL_ASpanFormer(pl.LightningModule):
                     figures = make_matching_figures_offset(batch, self.config, self.config.TRAINER.PLOT_MODE,side='_right')
                     for k, v in figures_right.items():
                         self.logger.experiment.add_figure(f'train_offset/{k}'+'_right', v, self.global_step)
+
+            # print("\ntrain data")
+            # for kk in batch["loss_scalars"].keys():
+            #     print(kk)
+            if self.use_wandb:
+                self.wandb_log_epochs(batch)
                 
         return {'loss': batch['loss']}
 
@@ -162,6 +227,7 @@ class PL_ASpanFormer(pl.LightningModule):
             self.logger.experiment.add_scalar(
                 'train/avg_loss_on_epoch', avg_loss,
                 global_step=self.current_epoch)
+        self.train_epoch_loss = outputs[-1]["loss"].clone().detach().cpu()
     
     def validation_step(self, batch, batch_idx):
         self._trainval_inference(batch)
@@ -209,19 +275,43 @@ class PL_ASpanFormer(pl.LightningModule):
             figures = {k: flattenList(gather(flattenList([_me[k] for _me in _figures]))) for k in _figures[0]}
 
             # tensorboard records only on rank 0
+            val_data = {}
             if self.trainer.global_rank == 0:
                 for k, v in loss_scalars.items():
                     mean_v = torch.stack(v).mean()
                     self.logger.experiment.add_scalar(f'val_{valset_idx}/avg_{k}', mean_v, global_step=cur_epoch)
+                    val_data.update({f"val_avg_{k}": mean_v})
 
                 for k, v in val_metrics_4tb.items():
                     self.logger.experiment.add_scalar(f"metrics_{valset_idx}/{k}", v, global_step=cur_epoch)
+                    val_data.update({f"val_metric_{k}": v})
                 
+                figures_list = []
                 for k, v in figures.items():
                     if self.trainer.global_rank == 0:
                         for plot_idx, fig in enumerate(v):
                             self.logger.experiment.add_figure(
                                 f'val_match_{valset_idx}/{k}/pair-{plot_idx}', fig, cur_epoch, close=True)
+                            # plt.show()
+                            if self.use_wandb:
+                                fig.canvas.draw()
+                                w, h = fig.canvas.get_width_height()
+                                fig = np.fromstring(fig.canvas.tostring_argb(), dtype=np.uint8)
+                                fig.shape = (h,w,4)
+                                fig = torch.from_numpy(fig[:,:,1:].transpose(2,0,1)).float()
+                                figures_list.append(wandb.Image(fig, caption=f"Figure {k}_{plot_idx}"))
+                val_data.update({
+                    "val_figures": figures_list
+                })
+                # wandb.log({
+                #     "val_figures": figures_list
+                # })
+                            
+            # print("\nval data")
+            # for kk in val_data.keys():
+            #     print(kk)
+            if self.use_wandb:
+                self.wandb_log_epochs(val_data, stage='val')
             plt.close('all')
 
         for thr in [5, 10, 20]:
