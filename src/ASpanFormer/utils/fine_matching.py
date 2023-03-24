@@ -39,6 +39,9 @@ class FineMatching(nn.Module):
                 'mkpts1_f': data['mkpts1_c'],
             })
             return
+        
+        # print("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nDEBUUUUGG FINE MATCHING")
+        # print(data['mkpts0_c'].shape)
 
         feat_f0_picked = feat_f0_picked = feat_f0[:, WW//2, :]
         sim_matrix = torch.einsum('mc,mrc->mr', feat_f0_picked, feat_f1)
@@ -52,6 +55,8 @@ class FineMatching(nn.Module):
         # compute std over <x, y>
         var = torch.sum(grid_normalized**2 * heatmap.view(-1, WW, 1), dim=1) - coords_normalized**2  # [M, 2]
         std = torch.sum(torch.sqrt(torch.clamp(var, min=1e-10)), -1)  # [M]  clamp needed for numerical stability
+
+        # print(torch.cat([coords_normalized, std.unsqueeze(1)], -1).shape)
         
         # for fine-level supervision
         data.update({'expec_f': torch.cat([coords_normalized, std.unsqueeze(1)], -1)})

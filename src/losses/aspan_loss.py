@@ -1,4 +1,5 @@
 from loguru import logger
+import math
 
 import torch
 import torch.nn as nn
@@ -152,6 +153,26 @@ class ASpanLoss(nn.Module):
         # correct_mask tells you which pair to compute fine-loss
         correct_mask = torch.linalg.norm(expec_f_gt, ord=float('inf'), dim=1) < self.correct_thr
 
+        # print("\n\n\n\n\n\n\n\n\nCompute Fine Loss")
+        # print(f"correct_mask: {correct_mask.shape}")
+        # print(f"correct: {correct_mask[correct_mask == 1].shape}")
+        # print(f"correct any: {correct_mask.any()}")
+        # print(f"expec_f_gt: {expec_f_gt.shape}")
+        # print(f"expec_f_gt abs: {expec_f_gt.abs().shape}")
+        # nana = expec_f_gt[:,0].abs() > 1
+        # nana = expec_f_gt[nana,1].abs() > 1
+        # print(f"expec_f_gt over 1: {expec_f_gt[nana].shape}")
+
+        # print("\n")
+        # print(f"f: {expec_f.shape}")
+        # print(f"f abs: {expec_f.abs().shape}")
+        # print(f"f abs: {expec_f.abs()[:5,:]}")
+        # nana = expec_f[:,0].abs() > 1
+        # print(nana.shape)
+        # nana = expec_f[nana,1].abs() > 1
+        # print(nana.shape)
+        # print(f"f over 1: {expec_f[nana].shape}")
+
         # use std as weight that measures uncertainty
         std = expec_f[:, 2]
         inverse_std = 1. / torch.clamp(std, min=1e-10)
@@ -159,19 +180,23 @@ class ASpanLoss(nn.Module):
 
         # corner case: no correct coarse match found
         if not correct_mask.any():
+            # print("gggggggggggggggggggggggggggggggggggggggg")
             if self.training:  # this seldomly happen during training, since we pad prediction with gt
                                # sometimes there is not coarse-level gt at all.
+                # print("hiwuegfdhrievbiervbiehviue")
                 logger.warning("assign a false supervision to avoid ddp deadlock")
                 correct_mask[0] = True
                 weight[0] = 0.
             else:
-                return None
+                return None, torch.ones_like(expec_f[:,0], requires_grad=False)
 
         # l2 loss with std
+        fine_error = torch.ones_like(expec_f[:,0], requires_grad=False)
         flow_l2 = ((expec_f_gt[correct_mask] - expec_f[correct_mask, :2]) ** 2).sum(-1)
+        fine_error[correct_mask] = torch.clamp(flow_l2 / (9*math.sqrt(2)/2), 0, 1)
         loss = (flow_l2 * weight[correct_mask]).mean()
 
-        return loss
+        return loss, fine_error
     
     @torch.no_grad()
     def compute_c_weight(self, data):
@@ -204,7 +229,8 @@ class ASpanLoss(nn.Module):
         loss_scalars.update({"loss_c": loss_c.clone().detach().cpu()})
 
         # 2. fine-level loss
-        loss_f = self.compute_fine_loss(data['expec_f'], data['expec_f_gt'])
+        loss_f, fine_err = self.compute_fine_loss(data['expec_f'], data['expec_f_gt'])
+        data["fine_err"] = fine_err[~data["gt_mask"]].detach().cpu()
         if loss_f is not None:
             loss += loss_f * self.loss_config['fine_weight']
             loss_scalars.update({"loss_f":  loss_f.clone().detach().cpu()})

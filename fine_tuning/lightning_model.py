@@ -1,4 +1,3 @@
-
 from collections import defaultdict
 import pprint
 from loguru import logger
@@ -47,6 +46,7 @@ class PL_ASpanFormer(pl.LightningModule):
         # Matcher: LoFTR
         self.matcher = ASpanFormer(config=_config['aspan'])
         self.loss = ASpanLoss(_config)
+        self.optimizer = None # Will be set later in a lightning function
 
         # Pretrained weights
         print(pretrained_ckpt)
@@ -84,8 +84,6 @@ class PL_ASpanFormer(pl.LightningModule):
         self.train_epoch_loss = None
 
     def wandb_log_epochs(self, data: dict, stage: str='train'):
-        # print(data.keys())
-        # print(data)
         if stage == 'train':
             loss_data = data["loss_scalars"]
             flow_losses = {}
@@ -93,12 +91,12 @@ class PL_ASpanFormer(pl.LightningModule):
                 id = loss_key.split('_')[-1]
                 flow_losses.update({f"train_flow_loss_{id}": loss_data[loss_key]})
             wandb.log({"epoch": self.current_epoch,
-                       "step": self.log_step,
+                       "train_step": self.log_step,
                        "train_coarse_loss": loss_data["loss_c"],
                        "train_fine_loss": loss_data["loss_f"],
                        **flow_losses,
                        "train_loss_stepwise": loss_data["loss"],
-                    #    "lr": self.optim.param_groups[0]["lr"]
+                       "lr": self.optimizer.param_groups[0]["lr"]
                     })
             
         elif stage == 'val':
@@ -116,25 +114,14 @@ class PL_ASpanFormer(pl.LightningModule):
         # FIXME: The scheduler did not work properly when `--resume_from_checkpoint`
         optimizer = build_optimizer(self, self.config)
         scheduler = build_scheduler(self.config, optimizer)
+        self.optimizer = optimizer
         return [optimizer], [scheduler]
     
     def optimizer_step(
             self, epoch, batch_idx, optimizer, optimizer_idx,
             optimizer_closure, on_tpu, using_native_amp, using_lbfgs):
-        # learning rate warm up
-        warmup_step = self.config.TRAINER.WARMUP_STEP
-        if self.trainer.global_step < warmup_step:
-            if self.config.TRAINER.WARMUP_TYPE == 'linear':
-                base_lr = self.config.TRAINER.WARMUP_RATIO * self.config.TRAINER.TRUE_LR
-                lr = base_lr + \
-                    (self.trainer.global_step / self.config.TRAINER.WARMUP_STEP) * \
-                    abs(self.config.TRAINER.TRUE_LR - base_lr)
-                for pg in optimizer.param_groups:
-                    pg['lr'] = lr
-            elif self.config.TRAINER.WARMUP_TYPE == 'constant':
-                pass
-            else:
-                raise ValueError(f'Unknown lr warm-up strategy: {self.config.TRAINER.WARMUP_TYPE}')
+        # For fine tuning I removed the lr warmup, if you want
+        # it back check the original lightning module
 
         # update params
         optimizer.step(closure=optimizer_closure)
@@ -196,26 +183,36 @@ class PL_ASpanFormer(pl.LightningModule):
                     f'skh_bin_score', self.matcher.coarse_matching.bin_score.clone().detach().cpu().data, self.global_step)
 
             # figures
+            train_figures = []
             if self.config.TRAINER.ENABLE_PLOTTING:
-                compute_symmetrical_epipolar_errors(batch)  # compute epi_errs for each match
+                # compute_symmetrical_epipolar_errors(batch)  # compute epi_errs for each match
                 figures = make_matching_figures(batch, self.config, self.config.TRAINER.PLOT_MODE)
                 for k, v in figures.items():
-                    self.logger.experiment.add_figure(f'train_match/{k}', v, self.global_step)
+                    # self.logger.experiment.add_figure(f'train_match/{k}', v, self.global_step)
+                    if self.use_wandb:
+                        if self.trainer.global_rank == 0:
+                            for plot_idx, fig in enumerate(v):
+                                fig.canvas.draw()
+                                w, h = fig.canvas.get_width_height()
+                                fig = np.fromstring(fig.canvas.tostring_argb(), dtype=np.uint8)
+                                fig.shape = (h,w,4)
+                                fig = torch.from_numpy(fig[:,:,1:].transpose(2,0,1)).float()
+                                train_figures.append(wandb.Image(fig, caption=f"Figure {k}_{plot_idx}"))
+                                wandb.log({
+                                    'train_figures': train_figures
+                                })
 
                 #plot offset 
-                if self.global_step%200==0:
-                    compute_symmetrical_epipolar_errors_offset_bidirectional(batch)
-                    figures_left = make_matching_figures_offset(batch, self.config, self.config.TRAINER.PLOT_MODE,side='_left')
-                    figures_right = make_matching_figures_offset(batch, self.config, self.config.TRAINER.PLOT_MODE,side='_right')
-                    for k, v in figures_left.items():
-                        self.logger.experiment.add_figure(f'train_offset/{k}'+'_left', v, self.global_step)
-                    figures = make_matching_figures_offset(batch, self.config, self.config.TRAINER.PLOT_MODE,side='_right')
-                    for k, v in figures_right.items():
-                        self.logger.experiment.add_figure(f'train_offset/{k}'+'_right', v, self.global_step)
+                # if self.global_step%200==0:
+                #     compute_symmetrical_epipolar_errors_offset_bidirectional(batch)
+                #     figures_left = make_matching_figures_offset(batch, self.config, self.config.TRAINER.PLOT_MODE,side='_left')
+                #     figures_right = make_matching_figures_offset(batch, self.config, self.config.TRAINER.PLOT_MODE,side='_right')
+                #     for k, v in figures_left.items():
+                #         self.logger.experiment.add_figure(f'train_offset/{k}'+'_left', v, self.global_step)
+                #     figures = make_matching_figures_offset(batch, self.config, self.config.TRAINER.PLOT_MODE,side='_right')
+                #     for k, v in figures_right.items():
+                #         self.logger.experiment.add_figure(f'train_offset/{k}'+'_right', v, self.global_step)
 
-            # print("\ntrain data")
-            # for kk in batch["loss_scalars"].keys():
-            #     print(kk)
             if self.use_wandb:
                 self.wandb_log_epochs(batch)
                 
@@ -307,9 +304,6 @@ class PL_ASpanFormer(pl.LightningModule):
                 #     "val_figures": figures_list
                 # })
                             
-            # print("\nval data")
-            # for kk in val_data.keys():
-            #     print(kk)
             if self.use_wandb:
                 self.wandb_log_epochs(val_data, stage='val')
             plt.close('all')

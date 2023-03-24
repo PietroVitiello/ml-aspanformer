@@ -69,7 +69,7 @@ def make_matching_figure(
 
 def _make_evaluation_figure(data, b_id, alpha='dynamic'):
     b_mask = data['m_bids'] == b_id
-    conf_thr = _compute_conf_thresh(data)
+    # conf_thr = _compute_conf_thresh(data)
     
     img0 = (data['image0'][b_id][0].cpu().numpy() * 255).round().astype(np.int32)
     img1 = (data['image1'][b_id][0].cpu().numpy() * 255).round().astype(np.int32)
@@ -80,30 +80,80 @@ def _make_evaluation_figure(data, b_id, alpha='dynamic'):
     if 'scale0' in data:
         kpts0 = kpts0 / data['scale0'][b_id].cpu().numpy()[[1, 0]]
         kpts1 = kpts1 / data['scale1'][b_id].cpu().numpy()[[1, 0]]
-    epi_errs = data['epi_errs'][b_mask].cpu().numpy()
-    correct_mask = epi_errs < conf_thr
-    precision = np.mean(correct_mask) if len(correct_mask) > 0 else 0
-    n_correct = np.sum(correct_mask)
-    n_gt_matches = int(data['conf_matrix_gt'][b_id].sum().cpu())
-    recall = 0 if n_gt_matches == 0 else n_correct / (n_gt_matches)
+    # epi_errs = data['epi_errs'][b_mask].cpu().numpy()
+    # correct_mask = epi_errs < conf_thr
+    # precision = np.mean(correct_mask) if len(correct_mask) > 0 else 0
+    # n_correct = np.sum(correct_mask)
+    # n_gt_matches = int(data['conf_matrix_gt'][b_id].sum().cpu())
+    # recall = 0 if n_gt_matches == 0 else n_correct / (n_gt_matches)
     # recall might be larger than 1, since the calculation of conf_matrix_gt
     # uses groundtruth depths and camera poses, but epipolar distance is used here.
 
     # matching info
     if alpha == 'dynamic':
-        alpha = dynamic_alpha(len(correct_mask))
-    color = error_colormap(epi_errs, conf_thr, alpha=alpha)
+        # alpha = dynamic_alpha(len(correct_mask))
+        alpha = dynamic_alpha(len(b_mask))
+    green = np.array([[0,1,0]])
+    delta_red = np.array([[1,-1,0]])
+    # print(b_mask.shape, data["fine_err"].shape)
+    color = green + (data["fine_err"][b_mask.cpu()].numpy()[...,None] * delta_red)
+    # print(color.shape, color[:,0].shape, color[:,[0]].shape, (np.ones_like(color[:,[0]])*alpha).shape, alpha)
+    wtf = np.ones((color.shape[0], 4))
+    wtf[:,:3] = color
+    wtf[:,3] *= alpha
+    color = np.clip(wtf, 0, 1)
+    # color = np.clip(
+    #     np.vstack([color, np.ones_like(color[:,[0]])*alpha]), 0, 1)
     
     text = [
         f'#Matches {len(kpts0)}',
-        f'Precision({conf_thr:.2e}) ({100 * precision:.1f}%): {n_correct}/{len(kpts0)}',
-        f'Recall({conf_thr:.2e}) ({100 * recall:.1f}%): {n_correct}/{n_gt_matches}'
+        # f'Precision({conf_thr:.2e}) ({100 * precision:.1f}%): {n_correct}/{len(kpts0)}',
+        # f'Recall({conf_thr:.2e}) ({100 * recall:.1f}%): {n_correct}/{n_gt_matches}'
     ]
     
     # make the figure
     figure = make_matching_figure(img0, img1, kpts0, kpts1,
                                   color, text=text)
     return figure
+
+
+# def _make_evaluation_figure(data, b_id, alpha='dynamic'):
+#     b_mask = data['m_bids'] == b_id
+#     conf_thr = _compute_conf_thresh(data)
+    
+#     img0 = (data['image0'][b_id][0].cpu().numpy() * 255).round().astype(np.int32)
+#     img1 = (data['image1'][b_id][0].cpu().numpy() * 255).round().astype(np.int32)
+#     kpts0 = data['mkpts0_f'][b_mask].cpu().numpy()
+#     kpts1 = data['mkpts1_f'][b_mask].cpu().numpy()
+    
+#     # for megadepth, we visualize matches on the resized image
+#     if 'scale0' in data:
+#         kpts0 = kpts0 / data['scale0'][b_id].cpu().numpy()[[1, 0]]
+#         kpts1 = kpts1 / data['scale1'][b_id].cpu().numpy()[[1, 0]]
+#     epi_errs = data['epi_errs'][b_mask].cpu().numpy()
+#     correct_mask = epi_errs < conf_thr
+#     precision = np.mean(correct_mask) if len(correct_mask) > 0 else 0
+#     n_correct = np.sum(correct_mask)
+#     n_gt_matches = int(data['conf_matrix_gt'][b_id].sum().cpu())
+#     recall = 0 if n_gt_matches == 0 else n_correct / (n_gt_matches)
+#     # recall might be larger than 1, since the calculation of conf_matrix_gt
+#     # uses groundtruth depths and camera poses, but epipolar distance is used here.
+
+#     # matching info
+#     if alpha == 'dynamic':
+#         alpha = dynamic_alpha(len(correct_mask))
+#     color = error_colormap(epi_errs, conf_thr, alpha=alpha)
+    
+#     text = [
+#         f'#Matches {len(kpts0)}',
+#         f'Precision({conf_thr:.2e}) ({100 * precision:.1f}%): {n_correct}/{len(kpts0)}',
+#         f'Recall({conf_thr:.2e}) ({100 * recall:.1f}%): {n_correct}/{n_gt_matches}'
+#     ]
+    
+#     # make the figure
+#     figure = make_matching_figure(img0, img1, kpts0, kpts1,
+#                                   color, text=text)
+#     return figure
 
 def _make_evaluation_figure_offset(data, b_id, alpha='dynamic',side=''):
     layer_num=data['predict_flow'][0].shape[0]
