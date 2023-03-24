@@ -5,6 +5,8 @@ import math
 import msgpack
 import msgpack_numpy as m
 
+from loguru import logger
+
 import copy
 
 from os import path as osp
@@ -32,15 +34,19 @@ class BlenderDataset(Dataset):
     def __init__(self,
                  use_masks: bool = False,
                  crop_margin: float = 0.3,
-                 resize_modality: int = 0) -> None:
+                 resize_modality: int = 0,
+                 segment_object: bool = False,
+                 filter_data: bool = False) -> None:
         self.dataset_dir = DATASET_DIR
+        self.coarse_scale = 0.125 #for training LoFTR
+
         self.use_masks = use_masks
         self.crop_margin = crop_margin
         self.resize_modality = resize_modality
-        self.coarse_scale = 0.125 #for training LoFTR
+        self.segment_object = segment_object
+        self.filter_data = filter_data
 
     def __len__(self):
-        print(len(np.sort(glob.glob(os.path.join(self.dataset_dir, 'scene_*')))))
         return len(np.sort(glob.glob(os.path.join(self.dataset_dir, 'scene_*'))))
         # return len(next(os.walk(self.dataset_dir))[1])
     
@@ -48,45 +54,14 @@ class BlenderDataset(Dataset):
         attributes = data["instance_attribute_map_0"]
         chosen_id = np.random.choice(data['available_ids'])
 
-        # chosen_id = 9
+        # chosen_id = 6
+        # print(data['available_ids'])
+        # print(chosen_id)
 
         data['chosen_obj_name'] = next((
             item['name'] for item in attributes if item['idx'] == chosen_id), None)
         data['seg_map_chosen_arg'] = chosen_id
         return data
-
-    # def load_scene(self, scene_dir) -> dict:
-                
-    #     data = {}
-    #     n = len(glob.glob(os.path.join(scene_dir, 'colors', '*')))
-
-    #     # load_intrinsic
-    #     data['intrinsic'] = np.load(os.path.join(scene_dir, 'intrinsic.npy'))
-    #     # load_T_CO
-    #     for i in range(n):
-    #         with open(os.path.join(scene_dir, 'T_CO', f'{i}.json')) as jsonfile:
-    #             T_WO = json.load(jsonfile)
-    #         for obj_name in T_WO:
-    #             T_WO[obj_name] = np.asarray(T_WO[obj_name])
-    #         data[f'T_CO_{i}'] = T_WO
-    #     # load_rgb
-    #     for i in range(n):
-    #         data[f'rgb_{i}'] = np.asarray(Image.open(os.path.join(scene_dir, 'colors', f'{i}' + '.png')))
-    #     # load_depth
-    #     for i in range(n):
-    #         data[f'depth_{i}'] = np.asarray(
-    #             Image.open(os.path.join(scene_dir, 'depth', f'{i}' + '.png'))).astype(np.uint16)
-    #     # load_instance_segmaps
-    #     for i in range(n):
-    #         data[f'instance_segmap_{i}'] = np.asarray(
-    #             Image.open(os.path.join(scene_dir, 'instance_segmaps', f'{i}' + '.png')))
-    #     # load_instance_attribute_maps
-    #     for i in range(n):
-    #         with open(os.path.join(scene_dir, 'instance_attribute_maps', f'{i}.json')) as f:
-    #             data[f'instance_attribute_map_{i}'] = json.load(f)
-
-    #     data = self.choose_object(data)
-    #     return data
 
     def load_scene(self, scene_dir) -> dict:
         scene_filename = scene_dir + '.msgpack'
@@ -109,29 +84,19 @@ class BlenderDataset(Dataset):
         rgb0 = data["rgb_0"].copy()
         depth0 = data["depth_0"].copy()
         segmap0 = data["instance_segmap_0"].copy() == obj_id
-        # segmap0 = segmap0 == 0
 
         rgb1 = data["rgb_1"].copy()
         depth1 = data["depth_1"].copy()
         segmap1 = data["instance_segmap_1"].copy() == obj_id
-        # segmap1 = segmap1 == 0
 
         bbox0 = bbox_from_mask(segmap0, margin=self.crop_margin)
         bbox1 = bbox_from_mask(segmap1, margin=self.crop_margin)
 
-        # if self.use_masks:
-        #     rgb0, crop_data["depth_0"], crop_data["seg_0"], bbox0 = crop(bbox0, rgb0, depth0, segmap0, return_updated_bbox=True)
-        #     rgb1, crop_data["depth_1"], crop_data["seg_1"], bbox1 = crop(bbox1, rgb1, depth1, segmap1, return_updated_bbox=True)
-        # else:
-        #     rgb0, crop_data["depth_0"], bbox0 = crop(bbox0, rgb0, depth0, return_updated_bbox=True)
-        #     rgb1, crop_data["depth_1"], bbox1 = crop(bbox1, rgb1, depth1, return_updated_bbox=True)
         rgb0, crop_data["depth_0"], crop_data["seg_0"], bbox0 = crop(bbox0, rgb0, depth0, segmap0, return_updated_bbox=True)
         rgb1, crop_data["depth_1"], crop_data["seg_1"], bbox1 = crop(bbox1, rgb1, depth1, segmap1, return_updated_bbox=True)
 
         crop_data["gray_0"] = rgb2gray(rgb0) / 255
         crop_data["gray_1"] = rgb2gray(rgb1) / 255
-        # crop_data["depth_0"] = crop_data["depth_0"].astype(np.float16) / 1e3
-        # crop_data["depth_1"] = crop_data["depth_1"].astype(np.float16) / 1e3
         crop_data["intrinsics_0"] = calculate_intrinsic_for_crop(
             data["intrinsic"].copy(), top=bbox0[1], left=bbox0[0]
         )
@@ -140,19 +105,6 @@ class BlenderDataset(Dataset):
         )
 
         resize_img_pair(crop_data, self.resize_modality)
-
-        # plt.figure()
-        # plt.imshow(crop_data["seg_0"])
-
-        # plt.figure()
-        # plt.imshow(segmap0)
-        # plt.figure()
-        # plt.imshow(crop_data["gray_0"].transpose((1, 2, 0)))
-        # plt.figure()
-        # plt.imshow(crop_data["gray_1"].transpose((1, 2, 0)))
-        # plt.figure()
-        # plt.imshow(crop_data["seg_0"])
-        # plt.show()
 
         return crop_data
 
@@ -165,7 +117,6 @@ class BlenderDataset(Dataset):
 
     def __getitem__(self, idx):
         # Get all the data for current scene
-        # print(idx)
         scene_dir = os.path.join(self.dataset_dir, f"scene_{str(idx).zfill(7)}")
         data = self.load_scene(scene_dir)
 
@@ -188,45 +139,55 @@ class BlenderDataset(Dataset):
                                                                                     return_valid_list=True,
                                                                                     depth_units='mm'
                                                                             )
-                if len(obj_indices_0[crop_data["valid_correspondence"]]) >= 3:
+                if len(obj_indices_0[crop_data["valid_correspondence"]]) >= 6400:
                     object_is_visible = True
                 else:
-                    # print(data['available_ids'], data['seg_map_chosen_arg'])
                     data['available_ids'].remove(data['seg_map_chosen_arg'])
                     data = self.choose_object(data)
             except ValueError:
+                if len(data['available_ids']) > 1:
+                    data['available_ids'].remove(data['seg_map_chosen_arg'])
+                    data = self.choose_object(data)
+                else:
+                    logger.warning(f"No valid object in scene {idx}")
+                    idx += 1
+                    scene_dir = os.path.join(self.dataset_dir, f"scene_{str(idx).zfill(7)}")
+                    data = self.load_scene(scene_dir)
+            except Exception as e:
                 data['available_ids'].remove(data['seg_map_chosen_arg'])
                 data = self.choose_object(data)
+                logger.warning(f"The following exception was found: \n{e}")
+
+        # plt.figure()
+        # plt.imshow(crop_data["depth_0"] * crop_data["seg_0"])
+        # plt.figure()
+        # plt.imshow(crop_data["gray_1"][0] * crop_data["seg_1"])
 
         # filtered_keypoints_0 = obj_indices_0[crop_data["valid_correspondence"]]
         # filtered_keypoints_1 = crop_data["keypoints_1"][crop_data["valid_correspondence"]]
         # plot_matches(
-        #     crop_data["gray_0"],
+        #     crop_data["gray_0"] * crop_data["seg_0"],
         #     filtered_keypoints_0,
-        #     crop_data["gray_1"],
+        #     crop_data["gray_1"] * crop_data["seg_1"],
         #     filtered_keypoints_1,
-        #     num_points_to_plot=20,
+        #     num_points_to_plot=-1,
         #     shuffle_matches=True
         # )
-        
-        # plt.figure()
-        # plt.imshow(crop_data["depth_0"] * crop_data["seg_0"])
-        # plt.figure()
-        # plt.imshow(crop_data["gray_0"][0] * crop_data["seg_0"])
-        # plt.show()
+
+        if self.segment_object:
+            crop_data["gray_0"] *= crop_data["seg_0"]
+            crop_data["depth_0"] *= crop_data["seg_0"]
+            crop_data["gray_1"] *= crop_data["seg_1"]
+            crop_data["depth_1"] *= crop_data["seg_1"]
         
         crop_data["depth_0"] = crop_data["depth_0"].astype(np.float16) / 1e3
         crop_data["depth_1"] = crop_data["depth_1"].astype(np.float16) / 1e3
-        # crop_data["depth_0"] = crop_data["depth_0"].astype(np.float16) * crop_data["seg_0"]
-        # crop_data["depth_1"] = crop_data["depth_1"].astype(np.float16) * crop_data["seg_1"]
-        
+
         data = {
             'image0': crop_data["gray_0"].astype(np.float32),   # (1, h, w)
             'depth0': crop_data["depth_0"],   # (h, w)
             'image1': crop_data["gray_1"].astype(np.float32),
-            'depth1': crop_data["depth_1"], # TODO: maybe int32?
-            # 'T_0to1': T_0to1.astype(np.float32),   # (4, 4)
-            # 'T_1to0': T_1to0.astype(np.float32),
+            'depth1': crop_data["depth_1"], # NOTE: maybe int32?
             'T_0to1': T_10.astype(np.float32),   # (4, 4)
             'T_1to0': T_01.astype(np.float32),
             'K0': crop_data["intrinsics_0"].astype(np.float32),  # (3, 3)
@@ -251,6 +212,9 @@ if __name__ == "__main__":
 
     dataset = BlenderDataset(use_masks=True, resize_modality=5)
 
+    # while True:
+    #     dataset[2]
+
     for point in dataset:
         print("\n")
         for key in point.keys():
@@ -260,7 +224,7 @@ if __name__ == "__main__":
                 tp = type(point[key])
             print(f"{key}: {tp}")
 
-    dataset[4]
+    dataset[2]
 
     # print(len(dataset))
 

@@ -120,7 +120,6 @@ def resize_img_pair(crop_data: DataDict, modality: int):
     elif modality == 4:
         pad_and_resize(crop_data)
     elif modality == 5:
-        # print("full resize")
         full_resize(crop_data)
     elif modality == -1:
         untouched(crop_data)
@@ -377,20 +376,15 @@ def full_resize(crop_data: DataDict):
         np.expand_dims(gray0.shape, 0),
         np.expand_dims(gray1.shape, 0)
         ))[:,:-1]
-    max_dim_size = np.max(sizes)
 
     old_sizes = sizes
-    sizes = sizes / np.expand_dims(np.max(sizes, axis=1), -1)
-    
-    max_size = (480, 640) #find_minimum_valid_size(max_dim_size)
-    sizes = np.round(sizes * max_size[0]).astype(np.int16)
+    max_size = [320, 320] #[240, 320]
+    sizes = np.round(sizes * np.min(np.array([max_size]) / sizes, keepdims=True, axis=1)).astype(np.int16)
 
     crop_data["gray_0"] = np.zeros((1, *max_size), dtype=np.float32)
     crop_data["gray_1"] = np.zeros((1, *max_size), dtype=np.float32)
     crop_data["depth_0"] = np.zeros(max_size, dtype=np.int16)
     crop_data["depth_1"] = np.zeros(max_size, dtype=np.int16)
-    # crop_data["depth_0"] = np.zeros(max_size, dtype=np.float16)
-    # crop_data["depth_1"] = np.zeros(max_size, dtype=np.float16)
 
     gray0 = cv2.resize(gray0, (sizes[0,1], sizes[0,0]))
     gray1 = cv2.resize(gray1, (sizes[1,1], sizes[1,0]))
@@ -403,10 +397,10 @@ def full_resize(crop_data: DataDict):
     crop_data["depth_1"][:sizes[1,0], :sizes[1,1]] = depth1
 
     crop_data['intrinsics_0'] = calculate_intrinsic_for_new_resolution(
-        crop_data['intrinsics_0'], *tuple(sizes[0,:]), *tuple(old_sizes[0,:])
+        crop_data['intrinsics_0'], *tuple(sizes[0,[1,0]]), *tuple(old_sizes[0,[1,0]])
     )
     crop_data['intrinsics_1'] = calculate_intrinsic_for_new_resolution(
-        crop_data['intrinsics_1'], *tuple(sizes[1,:]), *tuple(old_sizes[1,:])
+        crop_data['intrinsics_1'], *tuple(sizes[1,[1,0]]), *tuple(old_sizes[1,[1,0]])
     )
 
     if "seg_0" in crop_data:
@@ -414,8 +408,8 @@ def full_resize(crop_data: DataDict):
         seg1 = crop_data["seg_1"].copy().astype(np.int16)
         crop_data["seg_0"] = np.zeros(max_size, dtype=bool)
         crop_data["seg_1"] = np.zeros(max_size, dtype=bool)
-        seg0 = cv2.resize(seg0, (sizes[0,1], sizes[0,0])).astype(bool)
-        seg1 = cv2.resize(seg1, (sizes[1,1], sizes[1,0])).astype(bool)
+        seg0 = cv2.resize(seg0, (sizes[0,1], sizes[0,0]), interpolation=cv2.INTER_NEAREST).astype(bool)
+        seg1 = cv2.resize(seg1, (sizes[1,1], sizes[1,0]), interpolation=cv2.INTER_NEAREST).astype(bool)
         crop_data["seg_0"][:sizes[0,0], :sizes[0,1]] = seg0
         crop_data["seg_1"][:sizes[1,0], :sizes[1,1]] = seg1
 
@@ -467,6 +461,3 @@ def full_resize(crop_data: DataDict):
 #     crop_data["depth_1"][:sizes[1,0], :sizes[1,1]] = depth1
 
 #     return crop_data
-
-if __name__ == "__main__":
-    pass

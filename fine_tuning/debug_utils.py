@@ -20,7 +20,6 @@ def estimate_cropped_correspondences(keypoints: np.ndarray,
         # Get the depth value of the keypoint
         depth_values_0 = depth_image_0[keypoints[:, 1], keypoints[:, 0]].reshape(-1, 1)
 
-        depth_units = 'mm'
         if depth_units == 'mm':
             depth_values_0 = depth_values_0 / 1e3
 
@@ -124,9 +123,6 @@ def estimate_correspondences_diff_intr(keypoints: np.ndarray,
         keypoint_pos_C_1 /= keypoint_pos_C_1[:, 2:3]
 
         keypoints_1 = (keypoint_pos_C_1 @ K1.T)[:, :2]
-        print("yabalaba")
-        print(keypoints_1)
-        print(np.max(keypoints_1[:,0]))
         keypoints_1_rounded = np.round(keypoints_1).astype(np.int64)
         residuals = keypoints_1 - keypoints_1_rounded
         residuals = np.sqrt((residuals * residuals).sum(axis=1))
@@ -141,9 +137,6 @@ def estimate_correspondences_diff_intr(keypoints: np.ndarray,
         valid[keypoints_1[:, 1] > depth_image_1.shape[0] - 1] = False
 
         # Check if expected depth values match actual depth values
-
-        print(keypoints_1[valid])
-
         depth_values_1 = depth_image_1[keypoints_1_rounded[valid][:, 1], keypoints_1_rounded[valid][:, 0]].reshape(-1, 1)
         if depth_units == 'mm':
             depth_values_1 = depth_values_1 / 1e3

@@ -48,11 +48,12 @@ def bbox_from_mask(mask, margin: float = 0.2):
         np.max(y)
     ])
 
+    if margin == 0:
+        return bbox
+
     width = bbox[2] - bbox[0]
     height = bbox[3] - bbox[1]
     margin = np.array([-width, -height, width, height]) * margin / 2
-    # margin = np.array([-height, -width, height, width]) * margin / 2
-    # print(margin)
     return bbox + margin.astype(np.int16)
 
 def crop(bbox, *imgs, **kwargs):
