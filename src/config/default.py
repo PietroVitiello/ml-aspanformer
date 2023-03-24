@@ -5,7 +5,8 @@ _CN = CN()
 _CN.ASPAN = CN()
 _CN.ASPAN.BACKBONE_TYPE = 'ResNetFPN'
 _CN.ASPAN.RESOLUTION = (8, 2)  # options: [(8, 2), (16, 4)]
-_CN.ASPAN.FINE_WINDOW_SIZE = 5  # window_size in fine_level, must be odd
+###### Changed ###### _CN.ASPAN.FINE_WINDOW_SIZE = 5  # window_size in fine_level, must be odd
+_CN.ASPAN.FINE_WINDOW_SIZE = 9  # window_size in fine_level, must be odd
 _CN.ASPAN.FINE_CONCAT_COARSE_FEAT = True
 
 # 1. ASPAN-backbone (local feature CNN) config
@@ -31,12 +32,15 @@ _CN.ASPAN.COARSE.TEST_RES = None
 # 3. Coarse-Matching config
 _CN.ASPAN.MATCH_COARSE = CN()
 _CN.ASPAN.MATCH_COARSE.THR = 0.2
-_CN.ASPAN.MATCH_COARSE.BORDER_RM = 2
+###### Changed ###### _CN.ASPAN.MATCH_COARSE.BORDER_RM = 2
+_CN.ASPAN.MATCH_COARSE.BORDER_RM = 0
 _CN.ASPAN.MATCH_COARSE.MATCH_TYPE = 'dual_softmax'  # options: ['dual_softmax, 'sinkhorn']
 _CN.ASPAN.MATCH_COARSE.SKH_ITERS = 3
 _CN.ASPAN.MATCH_COARSE.SKH_INIT_BIN_SCORE = 1.0
 _CN.ASPAN.MATCH_COARSE.SKH_PREFILTER = False
-_CN.ASPAN.MATCH_COARSE.TRAIN_COARSE_PERCENT = 0.2  # training tricks: save GPU memory
+###### Changed ###### _CN.ASPAN.MATCH_COARSE.TRAIN_COARSE_PERCENT = 0.2  # training tricks: save GPU memory
+_CN.ASPAN.MATCH_COARSE.TRAIN_COARSE_PERCENT = 0.6  # training tricks: save GPU memory
+###### Changed ###### _CN.ASPAN.MATCH_COARSE.TRAIN_PAD_NUM_GT_MIN = 200  # training tricks: avoid DDP deadlock
 _CN.ASPAN.MATCH_COARSE.TRAIN_PAD_NUM_GT_MIN = 200  # training tricks: avoid DDP deadlock
 _CN.ASPAN.MATCH_COARSE.SPARSE_SPVS = True
 _CN.ASPAN.MATCH_COARSE.LEARNABLE_DS_TEMP = True
@@ -127,7 +131,8 @@ _CN.TRAINER.WARMUP_RATIO = 0.
 _CN.TRAINER.WARMUP_STEP = 4800
 
 # learning rate scheduler
-_CN.TRAINER.SCHEDULER = 'MultiStepLR'  # [MultiStepLR, CosineAnnealing, ExponentialLR]
+###### Changed ###### _CN.TRAINER.SCHEDULER = 'MultiStepLR'  # [MultiStepLR, CosineAnnealing, ExponentialLR]
+_CN.TRAINER.SCHEDULER = 'CosineAnnealing'  # [MultiStepLR, CosineAnnealing, ExponentialLR]
 _CN.TRAINER.SCHEDULER_INTERVAL = 'epoch'    # [epoch, step]
 _CN.TRAINER.MSLR_MILESTONES = [3, 6, 9, 12]  # MSLR: MultiStepLR
 _CN.TRAINER.MSLR_GAMMA = 0.5

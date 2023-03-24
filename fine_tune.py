@@ -14,8 +14,7 @@ from pytorch_lightning.plugins import DDPPlugin
 from src.config.default import get_cfg_defaults
 from src.utils.misc import get_rank_zero_only_logger, setup_gpus
 from src.utils.profiler import build_profiler
-# from src.lightning.data import MultiSceneDataModule
-from src.lightning.lightning_aspanformer import PL_ASpanFormer
+from fine_tuning.lightning_model import PL_ASpanFormer
 from fine_tuning.preprocessing import get_resize_modality_name
 
 from fine_tuning.datamodule import BlenderDataModule
@@ -34,11 +33,20 @@ def parse_args():
         '-name', '--model_name', type=str, default=None, required=True,
         help='options: [inference, pytorch], or leave it unset')
     parser.add_argument(
-        '-resize_m', '--resize_modality', type=int, default=0, required=False,
+        '-resize_m', '--resize_modality', type=int, default=5, required=False,
         help='Set the modality used to resize the images. Options: [0-5]')
+    parser.add_argument(
+        '-margin', '--crop_margin', type=float, default=0.3, required=False,
+        help='The margin to put around the cropped objects expressed in fraction [0-1]')
     parser.add_argument(
         '-mask', '--use_masks', action='store_true',
         help='Whether to upload the training information to weights and biases')
+    parser.add_argument(
+        '-seg', '--segment_object', action='store_true',
+        help='Whether to fully segment the objects in the input images (True) or leave the background (False)')
+    parser.add_argument(
+        '-filter', '--filter_dataset', action='store_true',
+        help='Whether to filter the dataset by removing more complex datapoints')
     parser.add_argument(
         '-wandb', '--use_wandb', action='store_true',
         help='Whether to upload the training information to weights and biases')
@@ -49,10 +57,13 @@ def parse_args():
     parser.add_argument(
         '-nw', '--num_workers', type=int, default=0)
     parser.add_argument(
+        '-lr', '--learning_rate', type=float, default=None, required=False,
+        help='The starting learning rate')
+    parser.add_argument(
         '--pin_memory', type=lambda x: bool(strtobool(x)),
         nargs='?', default=False, help='whether loading data to pinned memory or not')
     parser.add_argument(
-        '--exp_name', type=str, default='trying_out')
+        '--exp_name', type=str, default='trying_out', help='Name of the experiment and of checkpoint folder')
     
     parser.add_argument(
         '--data_cfg_path', type=str, help='data config path', default="configs/data/scannet_trainval.py")
@@ -107,9 +118,12 @@ def main():
     config.TRAINER.TRUE_BATCH_SIZE = config.TRAINER.WORLD_SIZE * args.batch_size
     _scaling = config.TRAINER.TRUE_BATCH_SIZE / config.TRAINER.CANONICAL_BS
     config.TRAINER.SCALING = _scaling
-    config.TRAINER.TRUE_LR = config.TRAINER.CANONICAL_LR * _scaling
     config.TRAINER.WARMUP_STEP = math.floor(
         config.TRAINER.WARMUP_STEP / _scaling)
+    if args.learning_rate is None:
+        config.TRAINER.TRUE_LR = config.TRAINER.CANONICAL_LR * _scaling
+    else:
+        config.TRAINER.TRUE_LR = args.learning_rate
     
     config.MODEL.NAME = args.model_name
     config.MODEL.MASK = args.use_masks
