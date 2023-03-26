@@ -32,7 +32,7 @@ def build_scheduler(config, optimizer):
             {'scheduler': MultiStepLR(optimizer, config.TRAINER.MSLR_MILESTONES, gamma=config.TRAINER.MSLR_GAMMA)})
     elif name == 'CosineAnnealing':
         scheduler.update(
-            {'scheduler': CosineAnnealingLR(optimizer, config.TRAINER.COSA_TMAX)})
+            {'scheduler': CosineAnnealingLR(optimizer, config.TRAINER.COSA_TMAX, eta_min=5e-7)})
     elif name == 'ExponentialLR':
         scheduler.update(
             {'scheduler': ExponentialLR(optimizer, config.TRAINER.ELR_GAMMA)})
