@@ -39,6 +39,7 @@ class BlenderDataset(Dataset):
                  filter_data: bool = False) -> None:
         self.dataset_dir = DATASET_DIR
         self.coarse_scale = 0.125 #for training LoFTR
+        self.idx = None
 
         self.use_masks = use_masks
         self.crop_margin = crop_margin
@@ -52,11 +53,24 @@ class BlenderDataset(Dataset):
     
     def choose_object(self, data):
         attributes = data["instance_attribute_map_0"]
-        chosen_id = np.random.choice(data['available_ids'])
+        valid = False
+        while valid == False:
+            # To avoid empty scene
+            if len(data['available_ids']) > 1:
+                chosen_id = np.random.choice(data['available_ids'])
 
-        # chosen_id = 6
-        # print(data['available_ids'])
-        # print(chosen_id)
+                # chosen_id = 6
+                # print(data['available_ids'])
+                # print(chosen_id)
+
+                seg0 = data["instance_segmap_0"].copy() == chosen_id
+                seg1 = data["instance_segmap_1"].copy() == chosen_id
+                # To avoid non co-visible objects
+                if seg0.any() and seg1.any():
+                    valid = True
+            else:
+                logger.warning(f"Scene {self.idx} has no objects. Loading random scene.")
+                return self.load_random_scene()
 
         data['chosen_obj_name'] = next((
             item['name'] for item in attributes if item['idx'] == chosen_id), None)
@@ -72,6 +86,11 @@ class BlenderDataset(Dataset):
         data['available_ids'].remove(2) # remove the floor id
         data = self.choose_object(data)
         return data
+    
+    def load_random_scene(self):
+        self.idx = np.random.randint(0, len(self))
+        scene_dir = os.path.join(self.dataset_dir, f"scene_{str(self.idx).zfill(7)}")
+        return self.load_scene(scene_dir)
     
     def get_common_objs(self, instance_attribute_map_0, instance_attribute_map_1):
         objs_1 = [instance['name'] for instance in instance_attribute_map_1 if instance['name'] != 'Floor']
@@ -116,8 +135,13 @@ class BlenderDataset(Dataset):
         return T_01, pose_inv(T_01)
 
     def __getitem__(self, idx):
+        # Check length of Dataset is respected
+        self.idx = idx
+        if self.idx >= len(self):
+            raise IndexError
+        
         # Get all the data for current scene
-        scene_dir = os.path.join(self.dataset_dir, f"scene_{str(idx).zfill(7)}")
+        scene_dir = os.path.join(self.dataset_dir, f"scene_{str(self.idx).zfill(7)}")
         data = self.load_scene(scene_dir)
 
         object_is_visible = False
@@ -127,7 +151,7 @@ class BlenderDataset(Dataset):
 
                 T_01, T_10 = self.get_rel_transformation(data)
 
-                obj_indices_0 = get_keypoint_indices(crop_data["seg_0"])
+                obj_indices_0 = get_keypoint_indices(crop_data["seg_0"], coarse_factor=8)
                 crop_data["keypoints_1"], crop_data["valid_correspondence"] = estimate_cropped_correspondences(
                                                                                     obj_indices_0,
                                                                                     crop_data["depth_0"].copy(),
@@ -139,7 +163,7 @@ class BlenderDataset(Dataset):
                                                                                     return_valid_list=True,
                                                                                     depth_units='mm'
                                                                             )
-                if len(obj_indices_0[crop_data["valid_correspondence"]]) >= 6400:
+                if len(obj_indices_0[crop_data["valid_correspondence"]]) >= 200:
                     object_is_visible = True
                 else:
                     data['available_ids'].remove(data['seg_map_chosen_arg'])
@@ -149,10 +173,8 @@ class BlenderDataset(Dataset):
                     data['available_ids'].remove(data['seg_map_chosen_arg'])
                     data = self.choose_object(data)
                 else:
-                    logger.warning(f"No valid object in scene {idx}")
-                    idx += 1
-                    scene_dir = os.path.join(self.dataset_dir, f"scene_{str(idx).zfill(7)}")
-                    data = self.load_scene(scene_dir)
+                    logger.warning(f"No valid object in scene {self.idx}")
+                    data = self.load_random_scene()
             except Exception as e:
                 data['available_ids'].remove(data['seg_map_chosen_arg'])
                 data = self.choose_object(data)
@@ -193,10 +215,10 @@ class BlenderDataset(Dataset):
             'K0': crop_data["intrinsics_0"].astype(np.float32),  # (3, 3)
             'K1': crop_data["intrinsics_1"].astype(np.float32),
             'dataset_name': 'Blender',
-            'scene_id': idx,
+            'scene_id': self.idx,
             'pair_id': data['seg_map_chosen_arg'],
-            'pair_names': (f"scene_{idx}_object_{data['seg_map_chosen_arg']}_0",
-                           f"scene_{idx}_object_{data['seg_map_chosen_arg']}_1")
+            'pair_names': (f"scene_{self.idx}_object_{data['seg_map_chosen_arg']}_0",
+                           f"scene_{self.idx}_object_{data['seg_map_chosen_arg']}_1")
         }
         if self.use_masks:
             crop_data["seg_0"], crop_data["seg_1"] = torch.from_numpy(crop_data["seg_0"]), torch.from_numpy(crop_data["seg_1"])
@@ -212,17 +234,20 @@ if __name__ == "__main__":
 
     dataset = BlenderDataset(use_masks=True, resize_modality=5)
 
-    # while True:
-    #     dataset[2]
+    print(f"\nThe dataset length is: {len(dataset)}")
 
-    for point in dataset:
-        print("\n")
-        for key in point.keys():
-            if isinstance(point[key], np.ndarray):
-                tp = point[key].dtype
-            else:
-                tp = type(point[key])
-            print(f"{key}: {tp}")
+    while True:
+        for point in dataset:
+            print(f"Scene id: {point['scene_id']}\nObject id: {point['pair_id']}\n")
+
+    # for point in dataset:
+    #     print("\n")
+    #     for key in point.keys():
+    #         if isinstance(point[key], np.ndarray):
+    #             tp = point[key].dtype
+    #         else:
+    #             tp = type(point[key])
+    #         print(f"{key}: {tp}")
 
     dataset[2]
 

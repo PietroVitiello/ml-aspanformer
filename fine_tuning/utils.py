@@ -74,12 +74,16 @@ def crop(bbox, *imgs, **kwargs):
         return *cropped_imgs, bbox
     return cropped_imgs
 
-def get_keypoint_indices(segmap):
-    x = np.arange(segmap.shape[1])  # TODO should we have '+ 0.5' here?
-    y = np.arange(segmap.shape[0])  # TODO should we have '+ 0.5' here?
+def get_keypoint_indices(segmap, coarse_factor=1):
+    x = np.arange(segmap.shape[1], step=coarse_factor, dtype=int)  # TODO should we have '+ 0.5' here?
+    y = np.arange(segmap.shape[0], step=coarse_factor, dtype=int)  # TODO should we have '+ 0.5' here?
     xx, yy = np.meshgrid(x, y)
     indices = np.concatenate((xx[..., None], yy[..., None]), axis=2)
-    return indices[segmap]
+    # print(segmap.shape)
+    # print(x)
+    # print(y)
+    # print(segmap[x,:][:,y].shape)
+    return indices[segmap[x,:][:,y]]
 
 def plot_matches(rgb_0: np.ndarray, kpts_0, rgb_1: np.ndarray, kpts_1, num_points_to_plot=-1, shuffle_matches=False,
                  match_flag=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS):
