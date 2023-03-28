@@ -245,8 +245,15 @@ def aggregate_metrics(metrics, epi_err_thr=5e-4):
 
     # pose auc
     angular_thresholds = [5, 10, 20]
+    # print(f"Stacked rot errors: {np.stack([metrics['R_errs'], metrics['t_errs']]).shape}")
+    # print(f"Ror and T errors: {metrics['R_errs'].shape}")
+    # print(f"Unique ids: {unq_ids}")
     pose_errors = np.max(np.stack([metrics['R_errs'], metrics['t_errs']]), axis=0)[unq_ids]
     aucs = error_auc(pose_errors, angular_thresholds)  # (auc@5, auc@10, auc@20)
+    avg_pose_errors = {
+        "R_errs" : np.mean(np.array(metrics['R_errs'])[unq_ids]),
+        "t_errs" : np.mean(np.array(metrics['t_errs'])[unq_ids])
+    }
 
     # matching precision
     dist_thresholds = [epi_err_thr]
@@ -255,6 +262,6 @@ def aggregate_metrics(metrics, epi_err_thr=5e-4):
     #offset precision
     try:
         precs_offset = epidist_prec(np.array(metrics['epi_errs_offset'], dtype=object)[unq_ids], [2e-3], True,offset=True) 
-        return {**aucs, **precs,**precs_offset}
+        return {**aucs, **precs, **precs_offset, **avg_pose_errors}
     except:
-        return {**aucs, **precs}
+        return {**aucs, **precs, **avg_pose_errors}
