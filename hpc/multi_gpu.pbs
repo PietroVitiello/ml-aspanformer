@@ -1,0 +1,34 @@
+#!/bin/sh
+#PBS -l walltime=00:15:00
+#PBS -l select=1:ncpus=16:mem=32gb:ngpus=2:gpu_type=RTX6000
+
+# Load necessary packages
+module load cuda/10.2
+module load anaconda3/personal
+source ~/.bashrc
+conda activate hcam
+eval `ssh-agent`
+ssh-add ~/.ssh/git_key
+
+# Get Job details
+echo "Job ID: $PBS_JOBID"
+id="${PBS_JOBID%.*}"
+complete_filename=multi_gpu.pbs
+filename=${complete_filename%.*}
+new_dir="${filename}_${id}"
+
+# Move the output files
+cd $PBS_O_WORKDIR
+cd outputs
+mkdir ${new_dir}
+cd ..
+mv -t outputs/${new_dir} "${complete_filename}.e${id}" "${complete_filename}.o${id}"
+mv outputs/${new_dir}/${complete_filename}.e${id} outputs/${new_dir}/e
+mv outputs/${new_dir}/${complete_filename}.o${id} outputs/${new_dir}/o
+
+# Move to the correct directory
+cd ..
+
+# Run scripts
+python fine_tune.py --gpus 2 -name hpc_multi_try -bs 6 -lr 6e-6 -resize_m 5 -mask -seg -wandb
+echo "Done"

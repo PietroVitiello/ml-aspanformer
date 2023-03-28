@@ -152,8 +152,10 @@ def main():
     ckpt_callback = ModelCheckpoint(monitor='auc@10', verbose=True, save_top_k=3, mode='max',
                                     save_last=True,
                                     every_n_train_steps=100,
+                                    every_n_train_steps=50,
                                     dirpath=str(ckpt_dir),
                                     filename='{epoch}-{auc@5:.3f}-{auc@10:.3f}-{auc@20:.3f}')
+
     lr_monitor = LearningRateMonitor(logging_interval='step')
     callbacks = [lr_monitor]
     if not args.disable_ckpt:

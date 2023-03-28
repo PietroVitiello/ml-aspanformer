@@ -101,8 +101,10 @@ class BlenderDataModule(pl.LightningDataModule):
             self.rank = 0
             logger.warning(str(ae) + " (set wolrd_size=1 and rank=0)")
 
+        train_samples = round(self.train_split * len(self.full_dataset))
+        val_samples = len(self.full_dataset) - train_samples
         self.training_dataset, self.validation_dataset = random_split(
-            self.full_dataset, [self.train_split, 1-self.train_split]
+            self.full_dataset, [train_samples, val_samples]
         )
         logger.info(f'[rank:{self.rank}] Train & Val Dataset loaded!')
 

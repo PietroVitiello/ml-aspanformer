@@ -61,7 +61,7 @@ class PL_ASpanFormer(pl.LightningModule):
         self.dump_dir = dump_dir
 
         self.use_wandb = use_wandb
-        if use_wandb:
+        if self.global_rank == 0 and use_wandb:
             entity = "head-dome"
             print(f'Connecting with {entity} on wandb')
             wandb.init(
@@ -321,7 +321,7 @@ class PL_ASpanFormer(pl.LightningModule):
                 #     "val_figures": figures_list
                 # })
                             
-            if self.use_wandb:
+            if self.trainer.global_rank == 0 and self.use_wandb:
                 self.wandb_log_epochs(val_data, stage='val')
             plt.close('all')
 
