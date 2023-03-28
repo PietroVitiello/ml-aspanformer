@@ -215,7 +215,10 @@ def make_matching_figures(data, config, mode='evaluation'):
     """
     assert mode in ['evaluation', 'confidence']  # 'confidence'
     figures = {mode: []}
-    for b_id in range(data['image0'].size(0)):
+    b_ids = range(data['image0'].size(0))
+    if len(b_ids) > 4:
+        b_ids = np.random.choice(b_ids, 4)
+    for b_id in b_ids:
         if mode == 'evaluation':
             fig = _make_evaluation_figure(
                 data, b_id,
@@ -224,7 +227,7 @@ def make_matching_figures(data, config, mode='evaluation'):
             fig = _make_confidence_figure(data, b_id)
         else:
             raise ValueError(f'Unknown plot mode: {mode}')
-    figures[mode].append(fig)
+        figures[mode].append(fig)
     return figures
 
 def make_matching_figures_offset(data, config, mode='evaluation',side=''):
