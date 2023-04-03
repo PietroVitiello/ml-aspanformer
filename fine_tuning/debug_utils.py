@@ -1,6 +1,31 @@
 from .utils import pose_inv
 import numpy as np
 
+def unique_counts(ar: np.ndarray):
+    """
+    Implementation of np.unique that allows for compilation
+
+    Args:
+     - ar: np.array [N,2]
+    """
+
+    unique = ar.copy()
+    counts = np.ones(unique.shape[0])
+    for i in range(ar.shape[0]):
+        # other_kpts = np.ones((valid_keypoints_1.shape[0]-1, valid_keypoints_1.shape[1]))
+        # other_kpts[0:i, :] = valid_keypoints_1[0:i, :]
+        # other_kpts[i:, :] = valid_keypoints_1[i+1:, :]
+        if counts[i] > 0:
+            for other_i in range(ar.shape[0]):
+                if i != other_i:
+                    if (ar[i,:] == ar[other_i,:]).all():
+                        counts[i] += 1
+                        counts[other_i] -= 1
+    valid = counts > 0
+    unique = unique[valid,:]
+    counts = counts[valid]
+    return unique, counts
+        
 def estimate_cropped_correspondences(keypoints: np.ndarray,
                                      depth_image_0: np.ndarray,
                                      depth_image_1: np.ndarray,
@@ -9,7 +34,7 @@ def estimate_cropped_correspondences(keypoints: np.ndarray,
                                      K1: np.ndarray,
                                      depth_units: str = 'mm',
                                      depth_rejection_threshold: float = 0.001,
-                                     return_valid_list: bool = False):
+                                     return_valid_list: bool = True):
 
         assert isinstance(keypoints, np.ndarray), 'Keypoints must be stored in a numpy array'
         assert keypoints.dtype == np.int64, 'Keypoints should be integers'
@@ -69,7 +94,8 @@ def estimate_cropped_correspondences(keypoints: np.ndarray,
 
         indices_of_valid = np.arange(len(keypoints))
         valid_keypoints_1 = keypoints_1_rounded[valid]
-        unique, counts = np.unique(valid_keypoints_1, axis=0, return_counts=True)
+        # unique, counts = np.unique(valid_keypoints_1, axis=0, return_counts=True)
+        unique, counts = unique_counts(valid_keypoints_1)
 
         if (counts > 1).any():
             for kpt in unique[counts > 1]:
@@ -79,7 +105,7 @@ def estimate_cropped_correspondences(keypoints: np.ndarray,
                 valid[[idx for idx in kpt_indices if idx != idx_of_closest_kpt]] = False
 
         if return_valid_list:
-            return keypoints_1_rounded, valid
+            return np.concatenate((keypoints_1_rounded, valid[:,None]), axis=1)
         else:
             return keypoints_1_rounded
 

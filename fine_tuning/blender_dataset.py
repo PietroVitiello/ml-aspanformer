@@ -22,10 +22,10 @@ from torch.utils.data import Dataset
 import cv2
 
 from .globals import DATASET_DIR
-from .utils import rgb2gray, pose_inv, bbox_from_mask, crop, calculate_intrinsic_for_crop, get_keypoint_indices, plot_matches
+from .utils import rgb2gray, pose_inv, bbox_from_mask, crop, calculate_intrinsic_for_crop, get_keypoint_indices, plot_matches, estimate_cropped_correspondences
 from .preprocessing import resize_img_pair
 
-from .debug_utils import estimate_correspondences, estimate_cropped_correspondences, estimate_correspondences_diff_intr
+from .debug_utils import estimate_correspondences, estimate_correspondences_diff_intr
 
 m.patch()
 
@@ -36,9 +36,11 @@ class BlenderDataset(Dataset):
                  crop_margin: float = 0.3,
                  resize_modality: int = 0,
                  segment_object: bool = False,
-                 filter_data: bool = False) -> None:
+                 filter_data: bool = False,
+                 coarse_grid_factor = 8) -> None:
         self.dataset_dir = DATASET_DIR
         self.coarse_scale = 0.125 #for training LoFTR
+        self.coarse_grid_factor = coarse_grid_factor
         self.idx = None
 
         self.use_masks = use_masks
@@ -56,8 +58,9 @@ class BlenderDataset(Dataset):
         valid = False
         while valid == False:
             # To avoid empty scene
-            if len(data['available_ids']) > 1:
+            if len(data['available_ids']) >= 1:
                 chosen_id = np.random.choice(data['available_ids'])
+                data['available_ids'].remove(chosen_id)
 
                 # chosen_id = 6
                 # print(data['available_ids'])
@@ -92,6 +95,39 @@ class BlenderDataset(Dataset):
         scene_dir = os.path.join(self.dataset_dir, f"scene_{str(self.idx).zfill(7)}")
         return self.load_scene(scene_dir)
     
+    def check_matches(self, crop_data, T_01):
+        obj_indices_0 = get_keypoint_indices(crop_data["seg_0"], self.coarse_grid_factor)
+
+        assert isinstance(obj_indices_0, np.ndarray), 'Keypoints must be stored in a numpy array'
+        assert obj_indices_0.dtype == np.int64, 'Keypoints should be integers'
+        assert len(obj_indices_0.shape) == 2, 'Keypoints must be stored in a 2-dimensional array'
+        assert obj_indices_0.shape[1] == 2, 'The x and y position of all keypoints must be specified'
+        matches_data = estimate_cropped_correspondences(obj_indices_0,
+                                                        crop_data["depth_0"].copy(),
+                                                        crop_data["depth_1"].copy(),
+                                                        T_01.copy(),
+                                                        crop_data["intrinsics_0"].copy(),
+                                                        crop_data["intrinsics_1"].copy(),
+                                                        depth_rejection_threshold=0.001,
+                                                        depth_units='mm')
+        crop_data["keypoints_1"], crop_data["valid_correspondence"] = matches_data[:,:2], matches_data[:,2].astype(bool)
+
+        # plt.figure()
+        # plt.imshow(crop_data["depth_0"] * crop_data["seg_0"])
+        # plt.figure()
+        # plt.imshow(crop_data["gray_1"][0] * crop_data["seg_1"])
+
+        # filtered_keypoints_0 = obj_indices_0[crop_data["valid_correspondence"]]
+        # filtered_keypoints_1 = crop_data["keypoints_1"][crop_data["valid_correspondence"]]
+        # plot_matches(
+        #     crop_data["gray_0"] * crop_data["seg_0"],
+        #     filtered_keypoints_0,
+        #     crop_data["gray_1"] * crop_data["seg_1"],
+        #     filtered_keypoints_1,
+        #     num_points_to_plot=-1,
+        #     shuffle_matches=True
+        # )
+    
     def get_common_objs(self, instance_attribute_map_0, instance_attribute_map_1):
         objs_1 = [instance['name'] for instance in instance_attribute_map_1 if instance['name'] != 'Floor']
         return [obj for obj in instance_attribute_map_0 if obj['name'] in objs_1]
@@ -111,8 +147,8 @@ class BlenderDataset(Dataset):
         bbox0 = bbox_from_mask(segmap0, margin=self.crop_margin)
         bbox1 = bbox_from_mask(segmap1, margin=self.crop_margin)
 
-        rgb0, crop_data["depth_0"], crop_data["seg_0"], bbox0 = crop(bbox0, rgb0, depth0, segmap0, return_updated_bbox=True)
-        rgb1, crop_data["depth_1"], crop_data["seg_1"], bbox1 = crop(bbox1, rgb1, depth1, segmap1, return_updated_bbox=True)
+        rgb0, crop_data["depth_0"], crop_data["seg_0"], bbox0 = crop(bbox0, rgb0, depth0, segmap0)
+        rgb1, crop_data["depth_1"], crop_data["seg_1"], bbox1 = crop(bbox1, rgb1, depth1, segmap1)
 
         crop_data["gray_0"] = rgb2gray(rgb0) / 255
         crop_data["gray_1"] = rgb2gray(rgb1) / 255
@@ -136,6 +172,7 @@ class BlenderDataset(Dataset):
 
     def __getitem__(self, idx):
         # Check length of Dataset is respected
+        # self.idx = np.random.randint(0,2)
         self.idx = idx
         if self.idx >= len(self):
             raise IndexError
@@ -148,53 +185,25 @@ class BlenderDataset(Dataset):
         while not object_is_visible:
             try:
                 crop_data = self.crop_object(data)
-
                 T_01, T_10 = self.get_rel_transformation(data)
-
-                obj_indices_0 = get_keypoint_indices(crop_data["seg_0"], coarse_factor=8)
-                crop_data["keypoints_1"], crop_data["valid_correspondence"] = estimate_cropped_correspondences(
-                                                                                    obj_indices_0,
-                                                                                    crop_data["depth_0"].copy(),
-                                                                                    crop_data["depth_1"].copy(),
-                                                                                    T_01.copy(),
-                                                                                    crop_data["intrinsics_0"].copy(),
-                                                                                    crop_data["intrinsics_1"].copy(),
-                                                                                    depth_rejection_threshold=0.001,
-                                                                                    return_valid_list=True,
-                                                                                    depth_units='mm'
-                                                                            )
-                if len(obj_indices_0[crop_data["valid_correspondence"]]) >= 200:
+                
+                self.check_matches(crop_data, T_01)
+                if np.sum(crop_data["valid_correspondence"]) >= 200: ##############################
                     object_is_visible = True
                 else:
-                    data['available_ids'].remove(data['seg_map_chosen_arg'])
+                    # data['available_ids'].remove(data['seg_map_chosen_arg'])
                     data = self.choose_object(data)
             except ValueError:
                 if len(data['available_ids']) > 1:
-                    data['available_ids'].remove(data['seg_map_chosen_arg'])
+                    # data['available_ids'].remove(data['seg_map_chosen_arg'])
                     data = self.choose_object(data)
                 else:
                     logger.warning(f"No valid object in scene {self.idx}")
                     data = self.load_random_scene()
             except Exception as e:
-                data['available_ids'].remove(data['seg_map_chosen_arg'])
+                # data['available_ids'].remove(data['seg_map_chosen_arg'])
                 data = self.choose_object(data)
                 logger.warning(f"The following exception was found: \n{e}")
-
-        # plt.figure()
-        # plt.imshow(crop_data["depth_0"] * crop_data["seg_0"])
-        # plt.figure()
-        # plt.imshow(crop_data["gray_1"][0] * crop_data["seg_1"])
-
-        # filtered_keypoints_0 = obj_indices_0[crop_data["valid_correspondence"]]
-        # filtered_keypoints_1 = crop_data["keypoints_1"][crop_data["valid_correspondence"]]
-        # plot_matches(
-        #     crop_data["gray_0"] * crop_data["seg_0"],
-        #     filtered_keypoints_0,
-        #     crop_data["gray_1"] * crop_data["seg_1"],
-        #     filtered_keypoints_1,
-        #     num_points_to_plot=-1,
-        #     shuffle_matches=True
-        # )
 
         if self.segment_object:
             crop_data["gray_0"] *= crop_data["seg_0"]
