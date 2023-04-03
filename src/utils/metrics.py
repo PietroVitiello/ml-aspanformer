@@ -12,9 +12,10 @@ from kornia.geometry.conversions import convert_points_to_homogeneous
 def relative_pose_error(T_0to1, R, t, ignore_gt_t_thr=0.0):
     # angle error between 2 vectors
     t_gt = T_0to1[:3, 3]
-    n = np.linalg.norm(t) * np.linalg.norm(t_gt)
-    t_err = np.rad2deg(np.arccos(np.clip(np.dot(t, t_gt) / n, -1.0, 1.0)))
-    t_err = np.minimum(t_err, 180 - t_err)  # handle E ambiguity
+    # n = np.linalg.norm(t) * np.linalg.norm(t_gt)
+    # t_err = np.rad2deg(np.arccos(np.clip(np.dot(t, t_gt) / n, -1.0, 1.0)))
+    # t_err = np.minimum(t_err, 180 - t_err)  # handle E ambiguity
+    t_err = np.linalg.norm(t - t_gt) * 100
     if np.linalg.norm(t_gt) < ignore_gt_t_thr:  # pure rotation is challenging
         t_err = 0
 
@@ -142,8 +143,12 @@ def estimate_pose(kpts0, kpts1, K0, K1, thresh, conf=0.99999):
     ransac_thr = thresh / np.mean([K0[0, 0], K1[1, 1], K0[0, 0], K1[1, 1]])
 
     # compute pose with cv2
+    # E, mask = cv2.findEssentialMat(
+    #     kpts0, kpts1, np.eye(3), threshold=ransac_thr, prob=conf, method=cv2.RANSAC)
+    ####### Mine
     E, mask = cv2.findEssentialMat(
-        kpts0, kpts1, np.eye(3), threshold=ransac_thr, prob=conf, method=cv2.RANSAC)
+        kpts0, kpts1, np.eye(3), threshold=ransac_thr, prob=conf, method=cv2.USAC_DEFAULT)
+    ####### End of Mine
     if E is None:
         print("\nE is None while trying to recover pose.\n")
         return None
@@ -250,9 +255,11 @@ def aggregate_metrics(metrics, epi_err_thr=5e-4):
     # print(f"Unique ids: {unq_ids}")
     pose_errors = np.max(np.stack([metrics['R_errs'], metrics['t_errs']]), axis=0)[unq_ids]
     aucs = error_auc(pose_errors, angular_thresholds)  # (auc@5, auc@10, auc@20)
+    R_errs = np.array(metrics['R_errs'])
+    t_errs = np.array(metrics['t_errs'])
     avg_pose_errors = {
-        "R_errs" : np.mean(np.array(metrics['R_errs'])[unq_ids]),
-        "t_errs" : np.mean(np.array(metrics['t_errs'])[unq_ids])
+        "R_errs" : np.mean(R_errs[unq_ids][np.isfinite(R_errs)]),
+        "t_errs" : np.mean(t_errs[unq_ids][np.isfinite(t_errs)])
     }
 
     # matching precision
