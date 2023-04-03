@@ -128,9 +128,7 @@ def resize_img_pair(crop_data: DataDict, modality: int):
     
 def untouched(crop_data: DataDict):
     '''
-    This resizing modality pads the two images leaving them in the corner.
-    The padding is done with zeros for both the grayscale image and the depth image.
-    The size of the final image is set to be the achievable minimum valid size for the model.
+    This resizing modality keeps the images unchanged.
     '''
     crop_data["gray_0"] = crop_data["gray_0"].transpose(2,0,1)
     crop_data["gray_1"] = crop_data["gray_1"].transpose(2,0,1)
@@ -413,7 +411,7 @@ def full_resize(crop_data: DataDict):
         crop_data["seg_0"][:sizes[0,0], :sizes[0,1]] = seg0
         crop_data["seg_1"][:sizes[1,0], :sizes[1,1]] = seg1
 
-    return crop_data    
+    return crop_data
 
 # def resize_to_common(crop_data):
 #     gray0 = crop_data["gray_0"].copy()
