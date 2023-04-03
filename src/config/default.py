@@ -34,6 +34,7 @@ _CN.ASPAN.MATCH_COARSE = CN()
 _CN.ASPAN.MATCH_COARSE.THR = 0.2
 ###### Changed ###### _CN.ASPAN.MATCH_COARSE.BORDER_RM = 2
 _CN.ASPAN.MATCH_COARSE.BORDER_RM = 0
+###### Changed ###### _CN.ASPAN.MATCH_COARSE.MATCH_TYPE = 'dual_softmax'  # options: ['dual_softmax, 'sinkhorn']
 _CN.ASPAN.MATCH_COARSE.MATCH_TYPE = 'dual_softmax'  # options: ['dual_softmax, 'sinkhorn']
 _CN.ASPAN.MATCH_COARSE.SKH_ITERS = 3
 _CN.ASPAN.MATCH_COARSE.SKH_INIT_BIN_SCORE = 1.0
@@ -42,7 +43,8 @@ _CN.ASPAN.MATCH_COARSE.SKH_PREFILTER = False
 _CN.ASPAN.MATCH_COARSE.TRAIN_COARSE_PERCENT = 0.6  # training tricks: save GPU memory
 ###### Changed ###### _CN.ASPAN.MATCH_COARSE.TRAIN_PAD_NUM_GT_MIN = 200  # training tricks: avoid DDP deadlock
 _CN.ASPAN.MATCH_COARSE.TRAIN_PAD_NUM_GT_MIN = 200  # training tricks: avoid DDP deadlock
-_CN.ASPAN.MATCH_COARSE.SPARSE_SPVS = True
+###### Changed ###### _CN.ASPAN.MATCH_COARSE.SPARSE_SPVS = True
+_CN.ASPAN.MATCH_COARSE.SPARSE_SPVS = False
 _CN.ASPAN.MATCH_COARSE.LEARNABLE_DS_TEMP = True
 
 # 4. ASPAN-fine module config
@@ -129,7 +131,7 @@ _CN.TRAINER.ADAMW_DECAY = 0.1
 _CN.TRAINER.WARMUP_TYPE = 'linear'  # [linear, constant]
 _CN.TRAINER.WARMUP_RATIO = 0.
 ###### Changed ###### _CN.TRAINER.WARMUP_STEP = 4800
-_CN.TRAINER.WARMUP_STEP = 500
+_CN.TRAINER.WARMUP_STEP = 300
 
 # learning rate scheduler
 ###### Changed ###### _CN.TRAINER.SCHEDULER = 'MultiStepLR'  # [MultiStepLR, CosineAnnealing, ExponentialLR]
@@ -138,7 +140,7 @@ _CN.TRAINER.SCHEDULER_INTERVAL = 'epoch'    # [epoch, step]
 _CN.TRAINER.MSLR_MILESTONES = [3, 6, 9, 12]  # MSLR: MultiStepLR
 _CN.TRAINER.MSLR_GAMMA = 0.5
 ###### Changed ###### _CN.TRAINER.COSA_TMAX = 30  # COSA: CosineAnnealing
-_CN.TRAINER.COSA_TMAX = 50  # COSA: CosineAnnealing
+_CN.TRAINER.COSA_TMAX = 600  # COSA: CosineAnnealing
 _CN.TRAINER.ELR_GAMMA = 0.999992  # ELR: ExponentialLR, this value for 'step' interval
 
 # plotting related
