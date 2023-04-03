@@ -149,16 +149,36 @@ def main():
 
     # Callbacks
     # TODO: update ModelCheckpoint to monitor multiple metrics
-    ckpt_callback = ModelCheckpoint(monitor='auc@10', verbose=True, save_top_k=3, mode='max',
-                                    save_last=True,
-                                    every_n_train_steps=50,
-                                    dirpath=str(ckpt_dir),
-                                    filename='{epoch}-{auc@5:.3f}-{auc@10:.3f}-{auc@20:.3f}')
+    training_validation_interval = 7000
+    train_w_loss_callback = ModelCheckpoint(monitor='training_window_loss', verbose=True, save_top_k=3, mode='min',
+                                            save_last=True,
+                                            every_n_train_steps=150,
+                                            dirpath=str(ckpt_dir),
+                                            filename='{epoch}-{step}-{training_window_loss:.4f}')
+    # train_last_loss_callback = ModelCheckpoint(monitor='training_last_loss', verbose=True, save_top_k=3, mode='min',
+    #                                            save_last=False,
+    #                                            every_n_train_steps=150,
+    #                                            dirpath=str(ckpt_dir),
+    #                                            filename='{epoch}-{step}-{training_last_loss:.4f}')
+    val_loss_callback = ModelCheckpoint(monitor='val_loss', verbose=True, save_top_k=3, mode='min',
+                                       save_last=True,
+                                       every_n_train_steps=training_validation_interval,
+                                       dirpath=str(ckpt_dir),
+                                       filename='{epoch}-{val_loss:.4f}')
+    val_auc_callback = ModelCheckpoint(monitor='auc@10', verbose=True, save_top_k=3, mode='max',
+                                       save_last=False,
+                                       every_n_val_epochs=1,
+                                       dirpath=str(ckpt_dir),
+                                       filename='{epoch}-{auc@5:.4f}-{auc@10:.4f}-{auc@20:.4f}')
 
     lr_monitor = LearningRateMonitor(logging_interval='step')
     callbacks = [lr_monitor]
     if not args.disable_ckpt:
-        callbacks.append(ckpt_callback)
+        # training
+        callbacks.append(train_w_loss_callback)
+        callbacks.append(val_loss_callback)
+        # validation
+        callbacks.append(val_auc_callback)
 
     # Lightning Trainer
     trainer = pl.Trainer.from_argparse_args(
@@ -173,7 +193,8 @@ def main():
         replace_sampler_ddp=False,  # use custom sampler
         reload_dataloaders_every_epoch=False,  # avoid repeated samples!
         weights_summary='full',
-        profiler=profiler)
+        profiler=profiler,
+        val_check_interval=training_validation_interval)
     loguru_logger.info(f"Trainer initialized!")
     loguru_logger.info(f"Start training!")
     trainer.fit(model, datamodule=data_module)
