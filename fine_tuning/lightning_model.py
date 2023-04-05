@@ -98,7 +98,7 @@ class PL_ASpanFormer(pl.LightningModule):
                        "train_coarse_loss": loss_data["loss_c"],
                        "train_fine_loss": loss_data["loss_f"],
                        **flow_losses,
-                       'train_figures': data["train_figures"]
+                       'train_figures': data["train_figures"],
                        "lr": self.optimizer.param_groups[0]["lr"],
                     })
             self.train_step += 1
