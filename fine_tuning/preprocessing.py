@@ -381,8 +381,8 @@ def full_resize(crop_data: DataDict):
 
     crop_data["gray_0"] = np.zeros((1, *max_size), dtype=np.float32)
     crop_data["gray_1"] = np.zeros((1, *max_size), dtype=np.float32)
-    crop_data["depth_0"] = np.zeros(max_size, dtype=np.int16)
-    crop_data["depth_1"] = np.zeros(max_size, dtype=np.int16)
+    crop_data["depth_0"] = np.zeros(max_size, dtype=np.int32)
+    crop_data["depth_1"] = np.zeros(max_size, dtype=np.int32)
 
     gray0 = cv2.resize(gray0, (sizes[0,1], sizes[0,0]))
     gray1 = cv2.resize(gray1, (sizes[1,1], sizes[1,0]))
