@@ -41,7 +41,7 @@ class PL_ASpanFormer(pl.LightningModule):
         _config = lower_config(self.config)
         self.loftr_cfg = lower_config(_config['aspan'])
         self.profiler = profiler or PassThroughProfiler()
-        self.n_vals_plot = max(config.TRAINER.N_VAL_PAIRS_TO_PLOT // config.TRAINER.WORLD_SIZE, 1)
+        self.n_vals_plot = 2 #max(config.TRAINER.N_VAL_PAIRS_TO_PLOT // config.TRAINER.WORLD_SIZE, 1)
 
         # Matcher: LoFTR
         self.matcher = ASpanFormer(config=_config['aspan'])
@@ -61,7 +61,7 @@ class PL_ASpanFormer(pl.LightningModule):
         self.dump_dir = dump_dir
 
         self.use_wandb = use_wandb
-        if use_wandb:
+        if self.global_rank == 0 and use_wandb:
             entity = "head-dome"
             print(f'Connecting with {entity} on wandb')
             wandb.init(
@@ -80,8 +80,9 @@ class PL_ASpanFormer(pl.LightningModule):
             }
             wandb.watch(self.matcher, log='all', log_freq=1)
 
-        self.log_step = 0
-        self.train_epoch_loss = None
+        self.train_step = 0
+        self.val_step = 0
+        self.train_loss = np.array([np.inf]) 
 
     def wandb_log_epochs(self, data: dict, stage: str='train'):
         if stage == 'train':
@@ -91,24 +92,28 @@ class PL_ASpanFormer(pl.LightningModule):
                 id = loss_key.split('_')[-1]
                 flow_losses.update({f"train_flow_loss_{id}": loss_data[loss_key]})
             wandb.log({"epoch": self.current_epoch,
-                       "train_step": self.log_step,
+                       "train_step": self.train_step,
+                       "train_loss_stepwise": self.train_loss[-1],
+                       "training_window_loss": np.mean(self.train_loss[1:]),
                        "train_coarse_loss": loss_data["loss_c"],
                        "train_fine_loss": loss_data["loss_f"],
                        **flow_losses,
-                       "train_loss_stepwise": loss_data["loss"],
-                       "lr": self.optimizer.param_groups[0]["lr"]
+                       'train_figures': data["train_figures"],
+                       "lr": self.optimizer.param_groups[0]["lr"],
                     })
+            self.train_step += 1
             
         elif stage == 'val':
             data.update({
                 "epoch": self.current_epoch,
-                "train_loss": self.train_epoch_loss,
-                # "lr": self.optim.param_groups[0]["lr"]
+                "val_step" : self.val_step,
+                "train_loss": np.mean(self.train_loss[1:]),
             })
             wandb.log(data)
+            self.val_step += 1
         else:
             print("[WANDB] Incorrect logging stage")
-        self.log_step += 1
+        data.clear()
         
     def configure_optimizers(self):
         # FIXME: The scheduler did not work properly when `--resume_from_checkpoint`
@@ -120,12 +125,27 @@ class PL_ASpanFormer(pl.LightningModule):
     def optimizer_step(
             self, epoch, batch_idx, optimizer, optimizer_idx,
             optimizer_closure, on_tpu, using_native_amp, using_lbfgs):
-        # For fine tuning I removed the lr warmup, if you want
-        # it back check the original lightning module
+        # learning rate warm up
+        warmup_step = self.config.TRAINER.WARMUP_STEP
+        if self.trainer.global_step < warmup_step:
+            if self.config.TRAINER.WARMUP_TYPE == 'linear':
+                base_lr = self.config.TRAINER.WARMUP_RATIO * self.config.TRAINER.TRUE_LR
+                lr = base_lr + \
+                    (self.trainer.global_step / self.config.TRAINER.WARMUP_STEP) * \
+                    abs(self.config.TRAINER.TRUE_LR - base_lr)
+                for pg in optimizer.param_groups:
+                    pg['lr'] = lr
+            elif self.config.TRAINER.WARMUP_TYPE == 'constant':
+                pass
+            else:
+                raise ValueError(f'Unknown lr warm-up strategy: {self.config.TRAINER.WARMUP_TYPE}')
 
         # update params
         optimizer.step(closure=optimizer_closure)
         optimizer.zero_grad()
+        # update lr stepwise
+        scheduler = self.lr_schedulers()
+        scheduler.step()
     
     def _trainval_inference(self, batch):
         with self.profiler.profile("Compute coarse supervision"):
@@ -159,38 +179,45 @@ class PL_ASpanFormer(pl.LightningModule):
             ret_dict = {'metrics': metrics}
         return ret_dict, rel_pair_names
     
+    def on_train_epoch_start(self) -> None:
+        self.train_loss = np.zeros(1)
    
     def training_step(self, batch, batch_idx):
         self._trainval_inference(batch)
+        self.train_loss = np.append(self.train_loss, batch['loss'].detach().cpu().numpy())
         
         # logging
-        if self.trainer.global_rank == 0 and self.global_step % self.trainer.log_every_n_steps == 0:
-            # scalars
-            for k, v in batch['loss_scalars'].items():
-                if not k.startswith('loss_flow') and not k.startswith('conf_'):
-                    self.logger.experiment.add_scalar(f'train/{k}', v, self.global_step)
+        if self.global_step % self.trainer.log_every_n_steps == 0:
+            # # scalars
+            # for k, v in batch['loss_scalars'].items():
+            #     if not k.startswith('loss_flow') and not k.startswith('conf_'):
+            #         self.logger.experiment.add_scalar(f'train/{k}', v, self.global_step)
             
-            #log offset_loss and conf for each layer and level
-            layer_num=self.loftr_cfg['coarse']['layer_num']
-            for layer_index in range(layer_num):
-                log_title='layer_'+str(layer_index)
-                self.logger.experiment.add_scalar(log_title+'/offset_loss', batch['loss_scalars']['loss_flow_'+str(layer_index)], self.global_step)
-                self.logger.experiment.add_scalar(log_title+'/conf_', batch['loss_scalars']['conf_'+str(layer_index)],self.global_step)
+            # #log offset_loss and conf for each layer and level
+            # layer_num=self.loftr_cfg['coarse']['layer_num']
+            # for layer_index in range(layer_num):
+            #     log_title='layer_'+str(layer_index)
+            #     self.logger.experiment.add_scalar(log_title+'/offset_loss', batch['loss_scalars']['loss_flow_'+str(layer_index)], self.global_step)
+            #     self.logger.experiment.add_scalar(log_title+'/conf_', batch['loss_scalars']['conf_'+str(layer_index)],self.global_step)
             
-            # net-params
-            if self.config.ASPAN.MATCH_COARSE.MATCH_TYPE == 'sinkhorn':
-                self.logger.experiment.add_scalar(
-                    f'skh_bin_score', self.matcher.coarse_matching.bin_score.clone().detach().cpu().data, self.global_step)
+            # # net-params
+            # if self.config.ASPAN.MATCH_COARSE.MATCH_TYPE == 'sinkhorn':
+            #     self.logger.experiment.add_scalar(
+            #         f'skh_bin_score', self.matcher.coarse_matching.bin_score.clone().detach().cpu().data, self.global_step)
 
-            # figures
-            train_figures = []
-            if self.config.TRAINER.ENABLE_PLOTTING:
-                # compute_symmetrical_epipolar_errors(batch)  # compute epi_errs for each match
-                figures = make_matching_figures(batch, self.config, self.config.TRAINER.PLOT_MODE)
-                for k, v in figures.items():
-                    # self.logger.experiment.add_figure(f'train_match/{k}', v, self.global_step)
-                    if self.use_wandb:
-                        if self.trainer.global_rank == 0:
+            window_average_loss = np.mean(self.train_loss[1:])
+            self.log("training_window_loss", window_average_loss)
+            self.log("training_last_loss", self.train_loss[-1])
+
+            if self.trainer.global_rank == 0:
+                if self.use_wandb:
+                    # figures
+                    train_figures = []
+                    if self.config.TRAINER.ENABLE_PLOTTING:
+                        # compute_symmetrical_epipolar_errors(batch)  # compute epi_errs for each match
+                        figures = make_matching_figures(batch, self.config, self.config.TRAINER.PLOT_MODE)
+                        for k, v in figures.items():
+                            # self.logger.experiment.add_figure(f'train_match/{k}', v, self.global_step)
                             for plot_idx, fig in enumerate(v):
                                 fig.canvas.draw()
                                 w, h = fig.canvas.get_width_height()
@@ -198,33 +225,38 @@ class PL_ASpanFormer(pl.LightningModule):
                                 fig.shape = (h,w,4)
                                 fig = torch.from_numpy(fig[:,:,1:].transpose(2,0,1)).float()
                                 train_figures.append(wandb.Image(fig, caption=f"Figure {k}_{plot_idx}"))
-                                wandb.log({
-                                    'train_figures': train_figures
-                                })
+                    #plot offset 
+                    # if self.global_step%200==0:
+                    #     compute_symmetrical_epipolar_errors_offset_bidirectional(batch)
+                    #     figures_left = make_matching_figures_offset(batch, self.config, self.config.TRAINER.PLOT_MODE,side='_left')
+                    #     figures_right = make_matching_figures_offset(batch, self.config, self.config.TRAINER.PLOT_MODE,side='_right')
+                    #     for k, v in figures_left.items():
+                    #         self.logger.experiment.add_figure(f'train_offset/{k}'+'_left', v, self.global_step)
+                    #     figures = make_matching_figures_offset(batch, self.config, self.config.TRAINER.PLOT_MODE,side='_right')
+                    #     for k, v in figures_right.items():
+                    #         self.logger.experiment.add_figure(f'train_offset/{k}'+'_right', v, self.global_step)
 
-                #plot offset 
-                # if self.global_step%200==0:
-                #     compute_symmetrical_epipolar_errors_offset_bidirectional(batch)
-                #     figures_left = make_matching_figures_offset(batch, self.config, self.config.TRAINER.PLOT_MODE,side='_left')
-                #     figures_right = make_matching_figures_offset(batch, self.config, self.config.TRAINER.PLOT_MODE,side='_right')
-                #     for k, v in figures_left.items():
-                #         self.logger.experiment.add_figure(f'train_offset/{k}'+'_left', v, self.global_step)
-                #     figures = make_matching_figures_offset(batch, self.config, self.config.TRAINER.PLOT_MODE,side='_right')
-                #     for k, v in figures_right.items():
-                #         self.logger.experiment.add_figure(f'train_offset/{k}'+'_right', v, self.global_step)
+                    train_data = {
+                        **batch,
+                        'train_figures': train_figures
+                    }
+                    self.wandb_log_epochs(train_data)
 
-            if self.use_wandb:
-                self.wandb_log_epochs(batch)
+                self.train_loss = self.train_loss[0]
+                plt.close('all')
                 
         return {'loss': batch['loss']}
-
-    def training_epoch_end(self, outputs):
-        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
-        if self.trainer.global_rank == 0:
-            self.logger.experiment.add_scalar(
-                'train/avg_loss_on_epoch', avg_loss,
-                global_step=self.current_epoch)
-        self.train_epoch_loss = outputs[-1]["loss"].clone().detach().cpu()
+    
+    def on_train_batch_end(self, outputs, batch, batch_idx: int, dataloader_idx: int) -> None:
+        outputs.clear()
+        
+    # def training_epoch_end(self, outputs):
+    #     # avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
+    #     # if self.trainer.global_rank == 0:
+    #     #     self.logger.experiment.add_scalar(
+    #     #         'train/avg_loss_on_epoch', avg_loss,
+    #     #         global_step=self.current_epoch)
+    #     # self.train_epoch_loss = outputs[-1]["loss"].clone().detach().cpu()
     
     def validation_step(self, batch, batch_idx):
         self._trainval_inference(batch)
@@ -234,9 +266,11 @@ class PL_ASpanFormer(pl.LightningModule):
         val_plot_interval = max(self.trainer.num_val_batches[0] // self.n_vals_plot, 1)
         figures = {self.config.TRAINER.PLOT_MODE: []}
         figures_offset = {self.config.TRAINER.PLOT_MODE: []}
-        if batch_idx % val_plot_interval == 0:
-            figures = make_matching_figures(batch, self.config, mode=self.config.TRAINER.PLOT_MODE)
-            figures_offset=make_matching_figures_offset(batch, self.config, self.config.TRAINER.PLOT_MODE,'_left')
+        if self.trainer.global_rank == 0:
+            if batch_idx % val_plot_interval == 0:
+                figures = make_matching_figures(batch, self.config, mode=self.config.TRAINER.PLOT_MODE)
+                figures_offset=make_matching_figures_offset(batch, self.config, self.config.TRAINER.PLOT_MODE,'_left')
+
         return {
             **ret_dict,
             'loss_scalars': batch['loss_scalars'],
@@ -249,11 +283,13 @@ class PL_ASpanFormer(pl.LightningModule):
         multi_outputs = [outputs] if not isinstance(outputs[0], (list, tuple)) else outputs
         multi_val_metrics = defaultdict(list)
         
+        val_data = {}
+        figures_list = []
         for valset_idx, outputs in enumerate(multi_outputs):
             # since pl performs sanity_check at the very begining of the training
-            cur_epoch = self.trainer.current_epoch
-            if not self.trainer.resume_from_checkpoint and self.trainer.running_sanity_check:
-                cur_epoch = -1
+            # cur_epoch = self.trainer.current_epoch
+            # if not self.trainer.resume_from_checkpoint and self.trainer.running_sanity_check:
+            #     cur_epoch = -1
 
             # 1. loss_scalars: dict of list, on cpu
             _loss_scalars = [o['loss_scalars'] for o in outputs]
@@ -272,41 +308,44 @@ class PL_ASpanFormer(pl.LightningModule):
             figures = {k: flattenList(gather(flattenList([_me[k] for _me in _figures]))) for k in _figures[0]}
 
             # tensorboard records only on rank 0
-            val_data = {}
             if self.trainer.global_rank == 0:
                 for k, v in loss_scalars.items():
                     mean_v = torch.stack(v).mean()
-                    self.logger.experiment.add_scalar(f'val_{valset_idx}/avg_{k}', mean_v, global_step=cur_epoch)
-                    val_data.update({f"val_avg_{k}": mean_v})
+                    # self.logger.experiment.add_scalar(f'val_{valset_idx}/avg_{k}', mean_v, global_step=cur_epoch)
+                    val_data.setdefault(f"val_avg_{k}", []).append(mean_v)
+                    # val_data.update({f"val_avg_{k}": mean_v})
 
                 for k, v in val_metrics_4tb.items():
-                    self.logger.experiment.add_scalar(f"metrics_{valset_idx}/{k}", v, global_step=cur_epoch)
-                    val_data.update({f"val_metric_{k}": v})
+                    # self.logger.experiment.add_scalar(f"metrics_{valset_idx}/{k}", v, global_step=cur_epoch)
+                    val_data.setdefault(f"val_metric_{k}", []).append(v)
+                    # val_data.update({f"val_metric_{k}": v})
                 
-                figures_list = []
                 for k, v in figures.items():
-                    if self.trainer.global_rank == 0:
-                        for plot_idx, fig in enumerate(v):
-                            self.logger.experiment.add_figure(
-                                f'val_match_{valset_idx}/{k}/pair-{plot_idx}', fig, cur_epoch, close=True)
-                            # plt.show()
-                            if self.use_wandb:
-                                fig.canvas.draw()
-                                w, h = fig.canvas.get_width_height()
-                                fig = np.fromstring(fig.canvas.tostring_argb(), dtype=np.uint8)
-                                fig.shape = (h,w,4)
-                                fig = torch.from_numpy(fig[:,:,1:].transpose(2,0,1)).float()
-                                figures_list.append(wandb.Image(fig, caption=f"Figure {k}_{plot_idx}"))
-                val_data.update({
-                    "val_figures": figures_list
-                })
-                # wandb.log({
-                #     "val_figures": figures_list
-                # })
+                    for plot_idx, fig in enumerate(v):
+                        # self.logger.experiment.add_figure(
+                        #     f'val_match_{valset_idx}/{k}/pair-{plot_idx}', fig, cur_epoch, close=True)
+                        # plt.show()
+                        if self.use_wandb:
+                            fig.canvas.draw()
+                            w, h = fig.canvas.get_width_height()
+                            fig = np.fromstring(fig.canvas.tostring_argb(), dtype=np.uint8)
+                            fig.shape = (h,w,4)
+                            fig = torch.from_numpy(fig[:,:,1:].transpose(2,0,1)).float()
+                            figures_list.append(wandb.Image(fig, caption=f"Figure {k}_{plot_idx}"))
+
+        for key in val_data.keys():
+            info = np.array(val_data[key])
+            val_data[key] = np.mean(info)
+
+        val_data.update({
+            "val_figures": figures_list
+        })
+
+        self.log("val_loss", val_data["val_avg_loss"])
                             
-            if self.trainer.global_rank == 0 and self.use_wandb:
-                self.wandb_log_epochs(val_data, stage='val')
-            plt.close('all')
+        if self.trainer.global_rank == 0 and self.use_wandb:
+            self.wandb_log_epochs(val_data, stage='val')
+        plt.close('all')
 
         for thr in [5, 10, 20]:
             # log on all ranks for ModelCheckpoint callback to work properly
