@@ -3,6 +3,26 @@ import numpy as np
 import cv2
 
 from numba import njit, bool_
+from .se3_tools import so3_log
+
+def calculate_intrinsic_for_new_resolution(intrinsic: np.ndarray, new_width, new_height, old_width, old_height):
+    # # See answer by Hammer: https://dsp.stackexchange.com/questions/6055/how-does-resizing-an-image-affect-the-intrinsic-camera-matrix
+    # n_width = np.log2(new_width / old_width)
+    # n_height = np.log2(new_height / old_height)
+    # transformation = np.array([[2 ** n_width, 0, 2 ** (n_width - 1) - 0.5],
+    #                            [0, 2 ** n_height, 2 ** (n_height - 1) - 0.5],
+    #                            [0, 0, 1]])
+    # return transformation @ K
+    ratio_width = new_width / old_width
+    ratio_height = new_height / old_height
+    new_intrinsic = intrinsic.copy()
+    new_intrinsic[0] *= ratio_width
+    new_intrinsic[1] *= ratio_height
+    return new_intrinsic
+
+def calculate_rot_delta(R):
+    rotvec = so3_log(R)
+    return np.rad2deg(np.linalg.norm(rotvec))
 
 @njit
 def rgb2gray(rgb):

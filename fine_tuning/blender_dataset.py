@@ -22,12 +22,25 @@ from torch.utils.data import Dataset
 import cv2
 
 from .globals import DATASET_DIR
-from .utils import rgb2gray, pose_inv, bbox_from_mask, crop, calculate_intrinsic_for_crop, get_keypoint_indices, plot_matches, estimate_cropped_correspondences
+from .utils import (rgb2gray, pose_inv, bbox_from_mask, crop, calculate_intrinsic_for_crop, calculate_rot_delta,
+                    get_keypoint_indices, plot_matches, estimate_cropped_correspondences, calculate_intrinsic_for_new_resolution)
 from .preprocessing import resize_img_pair
 
 from .debug_utils import estimate_correspondences, estimate_correspondences_diff_intr
 
 m.patch()
+ORIGINAL_IMAGE_WIDTH = 640
+ORIGINAL_IMAGE_HEIGHT = 480
+RENDERING_IMAGE_WIDTH = 640
+RENDERING_IMAGE_HEIGHT = 480
+RENDERING_RS_IMAGE_WIDTH = 64
+RENDERING_RS_IMAGE_HEIGHT = 48
+ORIGINAL_INTRINSIC = np.array([[612.044, 0, 326.732],
+                               [0, 611.178, 228.342],
+                               [0, 0, 1]])
+
+RENDERING_INTRINSIC = calculate_intrinsic_for_new_resolution(
+    ORIGINAL_INTRINSIC, RENDERING_IMAGE_WIDTH, RENDERING_IMAGE_HEIGHT, ORIGINAL_IMAGE_WIDTH, ORIGINAL_IMAGE_HEIGHT)
 
 class BlenderDataset(Dataset):
 
@@ -58,8 +71,8 @@ class BlenderDataset(Dataset):
         with open(scene_filename, "rb") as data_file:
             byte_data = data_file.read()
             data: dict = msgpack.unpackb(byte_data)
-        for k in data.keys():
-            print(k)
+        # for k in data.keys():
+        #     print(k)
 
         # print(data["colors"].shape)
         # print(data["depth"].shape)
@@ -138,14 +151,19 @@ class BlenderDataset(Dataset):
 
         crop_data["gray_0"] = rgb2gray(rgb0) / 255
         crop_data["gray_1"] = rgb2gray(rgb1) / 255
+
         crop_data["intrinsics_0"] = calculate_intrinsic_for_crop(
-            data["intrinsic"].copy(), top=bbox0[1], left=bbox0[0]
+            RENDERING_INTRINSIC.copy(), top=bbox0[1], left=bbox0[0]
         )
-        print(data["intrinsic"])
-        print(crop_data["intrinsics_0"])
         crop_data["intrinsics_1"] = calculate_intrinsic_for_crop(
-            data["intrinsic"].copy(), top=bbox1[1], left=bbox1[0]
+            RENDERING_INTRINSIC.copy(), top=bbox1[1], left=bbox1[0]
         )
+        # crop_data["intrinsics_0"] = calculate_intrinsic_for_crop(
+        #     data["intrinsic"].copy(), top=bbox0[1], left=bbox0[0]
+        # )
+        # crop_data["intrinsics_1"] = calculate_intrinsic_for_crop(
+        #     data["intrinsic"].copy(), top=bbox1[1], left=bbox1[0]
+        # )
 
         resize_img_pair(crop_data, self.resize_modality)
 
@@ -155,7 +173,8 @@ class BlenderDataset(Dataset):
         T_C0 = pose_inv(data["T_WC_opencv"]) @ data["T_WO_frame_0"]
         T_1C = pose_inv(data["T_WO_frame_1"]) @ data["T_WC_opencv"]
         T_C0C1 = T_C0 @ T_1C
-        return T_C0C1, pose_inv(T_C0C1)
+        T_delta = T_C0 @ T_1C
+        return T_C0C1, pose_inv(T_C0C1), T_delta
 
     def __getitem__(self, idx):
         # Check length of Dataset is respected
@@ -172,12 +191,14 @@ class BlenderDataset(Dataset):
         while not object_is_visible:
             try:
                 crop_data = self.crop_object(data)
-                T_01, T_10 = self.get_rel_transformation(data)
-                
-                self.check_matches(crop_data, T_01)
-                # if np.sum(crop_data["valid_correspondence"]) >= 200: ##############################
-                #     object_is_visible = True
-                object_is_visible = True
+                T_01, T_10, T_delta = self.get_rel_transformation(data)
+                if calculate_rot_delta(T_delta[:3,:3]) < 35:
+                    # self.check_matches(crop_data, T_01)
+                    # if np.sum(crop_data["valid_correspondence"]) >= 200: ##############################
+                    #     object_is_visible = True
+                    object_is_visible = True
+                else:
+                    data = self.load_random_scene()
             except Exception as e:
                 logger.warning(f"The following exception was found: \n{e}")
                 data = self.load_random_scene()
