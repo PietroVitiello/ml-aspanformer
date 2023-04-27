@@ -258,8 +258,8 @@ def aggregate_metrics(metrics, epi_err_thr=5e-4):
     R_errs = np.array(metrics['R_errs'])
     t_errs = np.array(metrics['t_errs'])
     avg_pose_errors = {
-        "R_errs" : np.mean(R_errs[unq_ids][np.isfinite(R_errs)]),
-        "t_errs" : np.mean(t_errs[unq_ids][np.isfinite(t_errs)])
+        "R_errs" : np.mean(R_errs[unq_ids][np.isfinite(R_errs[unq_ids])]),
+        "t_errs" : np.mean(t_errs[unq_ids][np.isfinite(t_errs[unq_ids])])
     }
 
     # matching precision
