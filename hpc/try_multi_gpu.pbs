@@ -1,5 +1,5 @@
 #!/bin/sh
-#PBS -l walltime=00:25:00
+#PBS -l walltime=00:15:00
 #PBS -l select=1:ncpus=16:mem=32gb:ngpus=2:gpu_type=RTX6000
 
 # Load necessary packages
@@ -30,5 +30,6 @@ mv outputs/${new_dir}/${complete_filename}.o${id} outputs/${new_dir}/o
 cd ..
 
 # Run scripts
-python fine_tune.py --gpus 2 -name hpc_multi_try -bs 7 -lr 6e-6 -resize_m 5 -mask -seg -wandb
+# python fine_tune.py --gpus 2 -name hpc_multi_try -bs 7 -lr 6e-6 -resize_m 5 -mask -seg -wandb
+python fine_tune.py --gpus 2 -name try_aspan_multi -bs 7 -lr 6e-6 -resize_m 5 -mask -seg --log_every_n_steps 50 --exp_name hpc_multi_2 --disable_ckpt -wandb
 echo "Done"
