@@ -1,6 +1,6 @@
 #!/bin/sh
-#PBS -l walltime=48:00:00
-#PBS -l select=1:ncpus=16:mem=32gb:ngpus=5:gpu_type=RTX6000
+#PBS -l walltime=00:25:00
+#PBS -l select=1:ncpus=16:mem=32gb:ngpus=2:gpu_type=RTX6000
 
 # Load necessary packages
 module load cuda/10.2
@@ -13,7 +13,7 @@ ssh-add ~/.ssh/git_key
 # Get Job details
 echo "Job ID: $PBS_JOBID"
 id="${PBS_JOBID%.*}"
-complete_filename=multi_gpu.pbs
+complete_filename=try_multi_gpu.pbs
 filename=${complete_filename%.*}
 new_dir="${filename}_${id}"
 
@@ -30,5 +30,5 @@ mv outputs/${new_dir}/${complete_filename}.o${id} outputs/${new_dir}/o
 cd ..
 
 # Run scripts
-python fine_tune.py --gpus 5 -name hpc_multi_1 -bs 7 -lr 6e-6 -resize_m 5 -mask -seg -wandb
+python fine_tune.py --gpus 2 -name hpc_multi_try -bs 7 -lr 6e-6 -resize_m 5 -mask -seg -wandb
 echo "Done"

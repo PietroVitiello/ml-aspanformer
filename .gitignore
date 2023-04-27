@@ -31,4 +31,5 @@ src/utils/client.py
 
 scannet_indices/
 
+hpc/outputs
 wandb/
