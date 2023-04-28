@@ -308,18 +308,18 @@ class PL_ASpanFormer(pl.LightningModule):
             figures = {k: flattenList(gather(flattenList([_me[k] for _me in _figures]))) for k in _figures[0]}
 
             # tensorboard records only on rank 0
-            if self.trainer.global_rank == 0:
-                for k, v in loss_scalars.items():
-                    mean_v = torch.stack(v).mean()
-                    # self.logger.experiment.add_scalar(f'val_{valset_idx}/avg_{k}', mean_v, global_step=cur_epoch)
-                    val_data.setdefault(f"val_avg_{k}", []).append(mean_v)
-                    # val_data.update({f"val_avg_{k}": mean_v})
+            for k, v in loss_scalars.items():
+                mean_v = torch.stack(v).mean()
+                # self.logger.experiment.add_scalar(f'val_{valset_idx}/avg_{k}', mean_v, global_step=cur_epoch)
+                val_data.setdefault(f"val_avg_{k}", []).append(mean_v)
+                # val_data.update({f"val_avg_{k}": mean_v})
 
-                for k, v in val_metrics_4tb.items():
-                    # self.logger.experiment.add_scalar(f"metrics_{valset_idx}/{k}", v, global_step=cur_epoch)
-                    val_data.setdefault(f"val_metric_{k}", []).append(v)
-                    # val_data.update({f"val_metric_{k}": v})
+            for k, v in val_metrics_4tb.items():
+                # self.logger.experiment.add_scalar(f"metrics_{valset_idx}/{k}", v, global_step=cur_epoch)
+                val_data.setdefault(f"val_metric_{k}", []).append(v)
+                # val_data.update({f"val_metric_{k}": v})
                 
+            if self.trainer.global_rank == 0:
                 for k, v in figures.items():
                     for plot_idx, fig in enumerate(v):
                         # self.logger.experiment.add_figure(

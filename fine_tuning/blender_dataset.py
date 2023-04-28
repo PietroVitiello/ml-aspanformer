@@ -182,14 +182,13 @@ class BlenderDataset(Dataset):
         self.idx = idx
         if self.idx >= len(self):
             raise IndexError
-        
-        # Get all the data for current scene
-        scene_dir = os.path.join(self.dataset_dir, f"scene_{str(self.idx).zfill(7)}")
-        data = self.load_scene(scene_dir)
 
         object_is_visible = False
         while not object_is_visible:
             try:
+                # Get all the data for current scene
+                scene_dir = os.path.join(self.dataset_dir, f"scene_{str(self.idx).zfill(7)}")
+                data = self.load_scene(scene_dir)
                 crop_data = self.crop_object(data)
                 T_01, T_10, T_delta = self.get_rel_transformation(data)
                 if calculate_rot_delta(T_delta[:3,:3]) < 35:
@@ -198,10 +197,10 @@ class BlenderDataset(Dataset):
                     #     object_is_visible = True
                     object_is_visible = True
                 else:
-                    data = self.load_random_scene()
+                    self.idx = np.random.randint(0, len(self))
             except Exception as e:
                 logger.warning(f"The following exception was found: \n{e}")
-                data = self.load_random_scene()
+                self.idx = np.random.randint(0, len(self))
 
         if self.segment_object:
             crop_data["gray_0"] *= crop_data["seg_0"]
