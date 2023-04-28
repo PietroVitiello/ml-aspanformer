@@ -70,7 +70,7 @@ def parse_args():
     parser.add_argument(
         '--main_cfg_path', type=str, help='main config path', default="configs/aspan/indoor/aspan_train.py")
     parser.add_argument(
-        '--ckpt_path', type=str, default=Path("weights/indoor.ckpt"),
+        '--ckpt_path', type=str, default=Path("weights/best_val.ckpt"),
         help='pretrained checkpoint path, helpful for using a pre-trained coarse-only ASpanFormer')
     
     parser.add_argument(

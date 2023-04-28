@@ -61,7 +61,7 @@ class PL_ASpanFormer(pl.LightningModule):
         self.dump_dir = dump_dir
 
         self.use_wandb = use_wandb
-        if self.global_rank == 0 and use_wandb:
+        if self.local_rank == 0 and use_wandb:
             entity = "head-dome"
             print(f'Connecting with {entity} on wandb')
             wandb.init(

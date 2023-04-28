@@ -37,7 +37,7 @@ class BlenderDataModule(pl.LightningDataModule):
     only a part of the training scenes to reduce memory overhead.
     """
     def __init__(self, args, config,
-                 train_split: float = 0.9996):
+                 train_split: float = 0.99):
         super().__init__()
 
         # 2. dataset config
