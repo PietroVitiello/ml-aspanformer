@@ -13,7 +13,7 @@ ssh-add ~/.ssh/git_key
 # Get Job details
 echo "Job ID: $PBS_JOBID"
 id="${PBS_JOBID%.*}"
-complete_filename=try_multi_gpu.pbs
+complete_filename=try_single_gpu.pbs
 filename=${complete_filename%.*}
 new_dir="${filename}_${id}"
 
