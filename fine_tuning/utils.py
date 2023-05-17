@@ -149,6 +149,7 @@ def get_keypoint_indices(segmap, coarse_factor=1):
     y = np.arange(segmap.shape[0], step=coarse_factor, dtype=int)  # TODO should we have '+ 0.5' here?
     xx, yy = np.meshgrid(x, y)
     indices = np.concatenate((xx[..., None], yy[..., None]), axis=2)
+    # return indices[segmap[::coarse_factor, ::coarse_factor]]
     return indices[segmap[y,:][:,x]]
 
 

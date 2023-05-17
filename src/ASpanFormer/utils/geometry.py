@@ -58,7 +58,7 @@ def warp_kpts(kpts0, depth0, depth1, T_0to1, K0, K1, img0, img1):
     )  # (N, L)
     # NOTE: Added depth consistency. If using Scannet or MegaDepth revert to original code below:
     # consistent_mask = ((w_kpts0_depth - w_kpts0_depth_computed) / w_kpts0_depth).abs() < 0.2
-    consistent_mask = (w_kpts0_depth - w_kpts0_depth_computed).abs() < 0.001
+    consistent_mask = (w_kpts0_depth - w_kpts0_depth_computed).abs() < 0.003 # depth consistency
     valid_mask = nonzero_mask * covisible_mask * consistent_mask
     w_kpts0[~valid_mask, :] = 0
     # print(f"valid: {(valid_mask[valid_mask == 1]).shape} \n")

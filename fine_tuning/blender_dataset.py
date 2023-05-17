@@ -29,18 +29,18 @@ from .preprocessing import resize_img_pair
 from .debug_utils import estimate_correspondences, estimate_correspondences_diff_intr
 
 m.patch()
-ORIGINAL_IMAGE_WIDTH = 640
-ORIGINAL_IMAGE_HEIGHT = 480
-RENDERING_IMAGE_WIDTH = 640
-RENDERING_IMAGE_HEIGHT = 480
-RENDERING_RS_IMAGE_WIDTH = 64
-RENDERING_RS_IMAGE_HEIGHT = 48
-ORIGINAL_INTRINSIC = np.array([[612.044, 0, 326.732],
-                               [0, 611.178, 228.342],
-                               [0, 0, 1]])
+# ORIGINAL_IMAGE_WIDTH = 640
+# ORIGINAL_IMAGE_HEIGHT = 480
+# RENDERING_IMAGE_WIDTH = 640
+# RENDERING_IMAGE_HEIGHT = 480
+# RENDERING_RS_IMAGE_WIDTH = 64
+# RENDERING_RS_IMAGE_HEIGHT = 48
+# ORIGINAL_INTRINSIC = np.array([[612.044, 0, 326.732],
+#                                [0, 611.178, 228.342],
+#                                [0, 0, 1]])
 
-RENDERING_INTRINSIC = calculate_intrinsic_for_new_resolution(
-    ORIGINAL_INTRINSIC, RENDERING_IMAGE_WIDTH, RENDERING_IMAGE_HEIGHT, ORIGINAL_IMAGE_WIDTH, ORIGINAL_IMAGE_HEIGHT)
+# RENDERING_INTRINSIC = calculate_intrinsic_for_new_resolution(
+#     ORIGINAL_INTRINSIC, RENDERING_IMAGE_WIDTH, RENDERING_IMAGE_HEIGHT, ORIGINAL_IMAGE_WIDTH, ORIGINAL_IMAGE_HEIGHT)
 
 class BlenderDataset(Dataset):
 
@@ -62,15 +62,16 @@ class BlenderDataset(Dataset):
         self.segment_object = segment_object
         self.filter_data = filter_data
 
+        self.scene_names = np.sort(glob.glob(os.path.join(self.dataset_dir, 'scene_*')))
+
     def __len__(self):
-        return len(np.sort(glob.glob(os.path.join(self.dataset_dir, 'scene_*'))))
-        # return len(next(os.walk(self.dataset_dir))[1])
+        return len(self.scene_names)
 
     def load_scene(self, scene_dir) -> dict:
-        scene_filename = scene_dir + '.msgpack'
-        with open(scene_filename, "rb") as data_file:
+        with open(scene_dir, "rb") as data_file:
             byte_data = data_file.read()
             data: dict = msgpack.unpackb(byte_data)
+
         # for k in data.keys():
         #     print(k)
 
@@ -78,12 +79,24 @@ class BlenderDataset(Dataset):
         # print(data["depth"].shape)
         # print(data["colors"])
         # print(data["depth"])
+
+        data["depth"][0] = data["depth"][0] * (data["depth"][0] < 5.0)
+        data["depth"][1] = data["depth"][1] * (data["depth"][1] < 5.0)
+
+        # print(data["depth"][0].dtype)
+        # # print(data["depth"][0])
+        # print(np.min(data["depth"][0]), np.max(data["depth"][0]))
+        # # plt.figure()
+        # # plt.imshow(data["colors"][0])
+        # plt.figure()
+        # plt.imshow(data["depth"][0])
+        # plt.show()
         
         data.update({
             "rgb_0": data["colors"][0],
             "rgb_1": data["colors"][1],
-            "depth_0": data["depth"][0] * 1000,
-            "depth_1": data["depth"][1] * 1000
+            "depth_0": data["depth"][0] * data["cp_main_obj_segmaps"][0] * 1000,
+            "depth_1": data["depth"][1] * data["cp_main_obj_segmaps"][1] * 1000
         })
         data.pop("colors")
         data.pop("depth")
@@ -97,6 +110,12 @@ class BlenderDataset(Dataset):
     def check_matches(self, crop_data, T_01):
         obj_indices_0 = get_keypoint_indices(crop_data["seg_0"], self.coarse_grid_factor)
 
+        # grid = np.zeros(crop_data["depth_0"].shape)
+        # grid[obj_indices_0[:,1], obj_indices_0[:,0]] = 1
+        # plt.figure()
+        # plt.imshow(grid)
+        # plt.show()
+
         assert isinstance(obj_indices_0, np.ndarray), 'Keypoints must be stored in a numpy array'
         assert obj_indices_0.dtype == np.int64, 'Keypoints should be integers'
         assert len(obj_indices_0.shape) == 2, 'Keypoints must be stored in a 2-dimensional array'
@@ -107,26 +126,26 @@ class BlenderDataset(Dataset):
                                                         T_01.copy(),
                                                         crop_data["intrinsics_0"].copy(),
                                                         crop_data["intrinsics_1"].copy(),
-                                                        depth_rejection_threshold=0.001,
+                                                        depth_rejection_threshold=0.003,
                                                         depth_units='mm')
         crop_data["keypoints_1"], crop_data["valid_correspondence"] = matches_data[:,:2], matches_data[:,2].astype(bool)
 
-        plt.figure()
-        plt.imshow(crop_data["depth_0"] * crop_data["seg_0"])
-        # plt.imshow(crop_data["depth_0"])
-        plt.figure()
-        plt.imshow(crop_data["gray_1"][0] * crop_data["seg_1"])
+        # plt.figure()
+        # plt.imshow(crop_data["depth_0"] * crop_data["seg_0"])
+        # # plt.imshow(crop_data["depth_0"])
+        # plt.figure()
+        # plt.imshow(crop_data["gray_1"][0] * crop_data["seg_1"])
 
         filtered_keypoints_0 = obj_indices_0[crop_data["valid_correspondence"]]
         filtered_keypoints_1 = crop_data["keypoints_1"][crop_data["valid_correspondence"]]
-        plot_matches(
-            crop_data["gray_0"] * crop_data["seg_0"],
-            filtered_keypoints_0,
-            crop_data["gray_1"] * crop_data["seg_1"],
-            filtered_keypoints_1,
-            num_points_to_plot=-1,
-            shuffle_matches=True
-        )
+        # plot_matches(
+        #     crop_data["gray_0"] * crop_data["seg_0"],
+        #     filtered_keypoints_0,
+        #     crop_data["gray_1"] * crop_data["seg_1"],
+        #     filtered_keypoints_1,
+        #     num_points_to_plot=-1,
+        #     shuffle_matches=True
+        # )
     
     def get_common_objs(self, instance_attribute_map_0, instance_attribute_map_1):
         objs_1 = [instance['name'] for instance in instance_attribute_map_1 if instance['name'] != 'Floor']
@@ -152,29 +171,33 @@ class BlenderDataset(Dataset):
         crop_data["gray_0"] = rgb2gray(rgb0) / 255
         crop_data["gray_1"] = rgb2gray(rgb1) / 255
 
-        crop_data["intrinsics_0"] = calculate_intrinsic_for_crop(
-            RENDERING_INTRINSIC.copy(), top=bbox0[1], left=bbox0[0]
-        )
-        crop_data["intrinsics_1"] = calculate_intrinsic_for_crop(
-            RENDERING_INTRINSIC.copy(), top=bbox1[1], left=bbox1[0]
-        )
         # crop_data["intrinsics_0"] = calculate_intrinsic_for_crop(
-        #     data["intrinsic"].copy(), top=bbox0[1], left=bbox0[0]
+        #     RENDERING_INTRINSIC.copy(), top=bbox0[1], left=bbox0[0]
         # )
         # crop_data["intrinsics_1"] = calculate_intrinsic_for_crop(
-        #     data["intrinsic"].copy(), top=bbox1[1], left=bbox1[0]
+        #     RENDERING_INTRINSIC.copy(), top=bbox1[1], left=bbox1[0]
         # )
+        crop_data["intrinsics_0"] = calculate_intrinsic_for_crop(
+            data["intrinsic"].copy(), top=bbox0[1], left=bbox0[0]
+        )
+        crop_data["intrinsics_1"] = calculate_intrinsic_for_crop(
+            data["intrinsic"].copy(), top=bbox1[1], left=bbox1[0]
+        )
 
         resize_img_pair(crop_data, self.resize_modality)
 
         return crop_data
 
     def get_rel_transformation(self, data):
+        # T_C0 = pose_inv(data["T_WC_opencv"]) @ data["T_WO_frame_0"]
+        # T_1C = pose_inv(data["T_WO_frame_1"]) @ data["T_WC_opencv"]
+        # T_C0C1 = T_C0 @ T_1C
+        # T_delta = T_C0 @ T_1C
+        # return T_C0C1, pose_inv(T_C0C1), T_delta
         T_C0 = pose_inv(data["T_WC_opencv"]) @ data["T_WO_frame_0"]
         T_1C = pose_inv(data["T_WO_frame_1"]) @ data["T_WC_opencv"]
         T_C0C1 = T_C0 @ T_1C
-        T_delta = T_C0 @ T_1C
-        return T_C0C1, pose_inv(T_C0C1), T_delta
+        return T_C0C1, pose_inv(T_C0C1)
 
     def __getitem__(self, idx):
         # Check length of Dataset is respected
@@ -187,14 +210,12 @@ class BlenderDataset(Dataset):
         while not object_is_visible:
             try:
                 # Get all the data for current scene
-                scene_dir = os.path.join(self.dataset_dir, f"scene_{str(self.idx).zfill(7)}")
+                scene_dir = self.scene_names[self.idx]
                 data = self.load_scene(scene_dir)
                 crop_data = self.crop_object(data)
-                T_01, T_10, T_delta = self.get_rel_transformation(data)
-                if calculate_rot_delta(T_delta[:3,:3]) < 35:
-                    # self.check_matches(crop_data, T_01)
-                    # if np.sum(crop_data["valid_correspondence"]) >= 200: ##############################
-                    #     object_is_visible = True
+                T_01, T_10 = self.get_rel_transformation(data)
+                self.check_matches(crop_data, T_01)
+                if np.sum(crop_data["valid_correspondence"]) >= 200: ##############################
                     object_is_visible = True
                 else:
                     self.idx = np.random.randint(0, len(self))
