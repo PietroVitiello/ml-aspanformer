@@ -14,4 +14,5 @@ if socket.gethostname() == 'pit-lab':
 elif socket.gethostname() == 'p-pit17':
     DATASET_DIR = Path("/home/pita/Documents/PhD/Aspanformer/clean_dataset")
 else:
-    DATASET_DIR = Path("/rds/general/user/pv2017/projects/head-cam-dome/live/datasets/full_blender_dataset_so")
+    # DATASET_DIR = Path("/rds/general/user/pv2017/projects/head-cam-dome/live/datasets/full_blender_dataset_so")
+    DATASET_DIR = Path("/rds/general/user/pv2017/projects/head-cam-dome/live/datasets/full_sar")
