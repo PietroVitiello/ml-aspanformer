@@ -14,10 +14,11 @@ from pytorch_lightning.plugins import DDPPlugin
 from src.config.default import get_cfg_defaults
 from src.utils.misc import get_rank_zero_only_logger, setup_gpus
 from src.utils.profiler import build_profiler
-from fine_tuning.lightning_model import PL_ASpanFormer
+from fine_tuning.lightning_model_rw import PL_ASpanFormer
 from fine_tuning.preprocessing import get_resize_modality_name
 
 from fine_tuning.datamodule import BlenderDataModule
+from fine_tuning.datamodule_rw import BlenderDataModule_withRealWorld
 
 loguru_logger = get_rank_zero_only_logger(loguru_logger)
 
@@ -139,7 +140,7 @@ def main():
 
     # lightning data
     # data_module = MultiSceneDataModule(args, config)
-    data_module = BlenderDataModule(args, config)
+    data_module = BlenderDataModule_withRealWorld(args, config)
     loguru_logger.info(f"ASpanFormer DataModule initialized!")
 
     # TensorBoard Logger
@@ -170,6 +171,11 @@ def main():
                                        every_n_val_epochs=1,
                                        dirpath=str(ckpt_dir),
                                        filename='{epoch}-{auc@5:.4f}-{auc@10:.4f}-{auc@20:.4f}')
+    real_ori_callback = ModelCheckpoint(monitor='rw_R_error', verbose=True, save_top_k=3, mode='min',
+                                        save_last=False,
+                                        every_n_train_steps=training_validation_interval,
+                                        dirpath=str(ckpt_dir),
+                                        filename='{epoch}-{rw_R_error:.4f}')
 
     lr_monitor = LearningRateMonitor(logging_interval='step')
     callbacks = [lr_monitor]
@@ -179,6 +185,7 @@ def main():
         callbacks.append(val_loss_callback)
         # validation
         callbacks.append(val_auc_callback)
+        callbacks.append(real_ori_callback)
 
     # Lightning Trainer
     trainer = pl.Trainer.from_argparse_args(

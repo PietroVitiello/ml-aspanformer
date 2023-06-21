@@ -120,11 +120,74 @@ def resize_img_pair(crop_data: DataDict, modality: int):
     elif modality == 4:
         pad_and_resize(crop_data)
     elif modality == 5:
+        central_full_resize(crop_data)
+    elif modality == 6:
         full_resize(crop_data)
     elif modality == -1:
         untouched(crop_data)
     else:
         raise Exception("[ASpanFormer Preprocessing] The resizing modality has to be an integer in (0-5)")
+    
+def central_full_resize(crop_data: DataDict):
+    '''
+    This resizing modality resizes the two images to the size, preserving their aspect ratios.
+    The size of the final image is set to be the achievable minimum valid size for the model.
+    '''
+    gray0 = crop_data["gray_0"].copy()
+    gray1 = crop_data["gray_1"].copy()
+    depth0 = crop_data["depth_0"].copy()
+    depth1 = crop_data["depth_1"].copy()
+
+    sizes = np.vstack((
+        np.expand_dims(gray0.shape, 0),
+        np.expand_dims(gray1.shape, 0)
+        ))[:,:-1]
+
+    old_sizes = sizes
+    max_size = np.array([320, 320])
+    sizes = np.round(sizes * np.min(max_size[None] / sizes, keepdims=True, axis=1)).astype(np.int16)
+
+    pad = ((max_size[None] - sizes) // 2).astype(int)
+    pad = np.concatenate((pad[...,None], (pad+sizes)[...,None]), axis=2)
+
+    crop_data["gray_0"] = np.zeros((1, *max_size), dtype=np.float32)
+    crop_data["gray_1"] = np.zeros((1, *max_size), dtype=np.float32)
+    crop_data["depth_0"] = np.zeros(max_size, dtype=np.float32)
+    crop_data["depth_1"] = np.zeros(max_size, dtype=np.float32)
+
+    gray0 = cv2.resize(gray0, (sizes[0,1], sizes[0,0]))
+    gray1 = cv2.resize(gray1, (sizes[1,1], sizes[1,0]))
+    depth0 = cv2.resize(depth0, (sizes[0,1], sizes[0,0]), interpolation=cv2.INTER_NEAREST)
+    depth1 = cv2.resize(depth1, (sizes[1,1], sizes[1,0]), interpolation=cv2.INTER_NEAREST)
+    
+    crop_data["gray_0"][:, pad[0,0,0]:pad[0,0,1], pad[0,1,0]:pad[0,1,1]] = np.expand_dims(gray0, 0)
+    crop_data["gray_1"][:, pad[1,0,0]:pad[1,0,1], pad[1,1,0]:pad[1,1,1]] = np.expand_dims(gray1, 0)
+    crop_data["depth_0"][pad[0,0,0]:pad[0,0,1], pad[0,1,0]:pad[0,1,1]] = depth0
+    crop_data["depth_1"][pad[1,0,0]:pad[1,0,1], pad[1,1,0]:pad[1,1,1]] = depth1
+
+    crop_data['intrinsics_0'] = calculate_intrinsic_for_new_resolution(
+        crop_data['intrinsics_0'], *tuple(sizes[0,[1,0]]), *tuple(old_sizes[0,[1,0]])
+    )
+    crop_data['intrinsics_0'] = calculate_intrinsic_for_crop(
+        crop_data['intrinsics_0'], -pad[0,0,0], -pad[0,1,0])
+    
+    crop_data['intrinsics_1'] = calculate_intrinsic_for_new_resolution(
+        crop_data['intrinsics_1'], *tuple(sizes[1,[1,0]]), *tuple(old_sizes[1,[1,0]])
+    )
+    crop_data['intrinsics_1'] = calculate_intrinsic_for_crop(
+        crop_data['intrinsics_1'], -pad[1,0,0], -pad[1,1,0])
+
+    if "seg_0" in crop_data:
+        seg0 = crop_data["seg_0"].copy().astype(np.int16)
+        seg1 = crop_data["seg_1"].copy().astype(np.int16)
+        crop_data["seg_0"] = np.zeros(max_size, dtype=bool)
+        crop_data["seg_1"] = np.zeros(max_size, dtype=bool)
+        seg0 = cv2.resize(seg0, (sizes[0,1], sizes[0,0]), interpolation=cv2.INTER_NEAREST).astype(bool)
+        seg1 = cv2.resize(seg1, (sizes[1,1], sizes[1,0]), interpolation=cv2.INTER_NEAREST).astype(bool)
+        crop_data["seg_0"][pad[0,0,0]:pad[0,0,1], pad[0,1,0]:pad[0,1,1]] = seg0
+        crop_data["seg_1"][pad[1,0,0]:pad[1,0,1], pad[1,1,0]:pad[1,1,1]] = seg1
+
+    return crop_data
     
 def untouched(crop_data: DataDict):
     '''

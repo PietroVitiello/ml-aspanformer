@@ -2,13 +2,12 @@ import glob
 import json
 import os
 import math
+from copy import deepcopy
+
 import msgpack
 import msgpack_numpy as m
 
 from loguru import logger
-
-import copy
-
 from os import path as osp
 from typing import Dict
 from unicodedata import name
@@ -21,11 +20,10 @@ from PIL import Image
 from torch.utils.data import Dataset
 import cv2
 
-from .globals import DATASET_DIR
+from .globals import REALWORLD_DATA_DIR
 from .utils import (rgb2gray, pose_inv, bbox_from_mask, crop, calculate_intrinsic_for_crop, calculate_rot_delta,
                     get_keypoint_indices, plot_matches, estimate_cropped_correspondences, calculate_intrinsic_for_new_resolution)
 from .preprocessing import resize_img_pair
-from .data_augmentation import DataAugmentator
 
 from .debug_utils import estimate_correspondences, estimate_correspondences_diff_intr
 
@@ -43,17 +41,16 @@ m.patch()
 # RENDERING_INTRINSIC = calculate_intrinsic_for_new_resolution(
 #     ORIGINAL_INTRINSIC, RENDERING_IMAGE_WIDTH, RENDERING_IMAGE_HEIGHT, ORIGINAL_IMAGE_WIDTH, ORIGINAL_IMAGE_HEIGHT)
 
-class BlenderDataset(Dataset):
+class RealWorldDataset(Dataset):
 
     def __init__(self,
                  use_masks: bool = False,
                  crop_margin: float = 0.3,
-                 resize_modality: int = 0,
+                 resize_modality: int = 5,
                  segment_object: bool = False,
                  filter_data: bool = False,
-                 coarse_grid_factor = 8,
-                 do_augmentation = True) -> None:
-        self.dataset_dir = DATASET_DIR
+                 coarse_grid_factor = 8) -> None:
+        self.dataset_dir = REALWORLD_DATA_DIR
         self.coarse_scale = 0.125 #for training LoFTR
         self.coarse_grid_factor = coarse_grid_factor
         self.idx = None
@@ -63,102 +60,67 @@ class BlenderDataset(Dataset):
         self.resize_modality = resize_modality
         self.segment_object = segment_object
         self.filter_data = filter_data
-        self.do_augmentation = do_augmentation
 
         self.scene_names = np.sort(glob.glob(os.path.join(self.dataset_dir, 'scene_*')))
-        self.augmentator = DataAugmentator()
 
     def __len__(self):
         return len(self.scene_names)
 
-    def load_scene(self, scene_dir) -> dict:
-        with open(scene_dir, "rb") as data_file:
+    def load_scene(self, scene_filename) -> dict:
+        with open(scene_filename, "rb") as data_file:
             byte_data = data_file.read()
             data: dict = msgpack.unpackb(byte_data)
 
-        # for k in data.keys():
-        #     print(k)
+        data = deepcopy(data)
+        # kernel = np.ones((5, 5), dtype=np.float32)
+        kernel = np.ones((5,5), dtype=np.float32) / 25
+        # # # kernel = np.ones((2,2), dtype=np.float32) / 4
 
-        # print(data["colors"].shape)
-        # print(data["depth"].shape)
-        # print(data["colors"])
-        # print(data["depth"])
+        # # cv2.imshow("Normal", data["cp_main_obj_segmaps"][0].astype(np.float32))
 
-        # plt.figure()
-        # plt.imshow(data["colors"][0])
+        data["seg_0"] = cv2.filter2D(data["cp_main_obj_segmaps"][0].astype(np.float32), -1, kernel)
+        data["seg_1"] = cv2.filter2D(data["cp_main_obj_segmaps"][1].astype(np.float32), -1, kernel)
+        data["seg_0"] = (data["seg_0"] >= 1)
+        data["seg_1"] = (data["seg_1"] >= 1)
 
-        if self.do_augmentation:
-            data["colors"] = self.augmentator.augment_data(data["colors"])
+        # print(data["seg_0"].shape)
+        # print(data["seg_0"].dtype)
 
-        data["depth"][0] = data["depth"][0] * (data["depth"][0] < 5.0)
-        data["depth"][1] = data["depth"][1] * (data["depth"][1] < 5.0)
+        # cv2.imshow("Eroded", data["seg_0"].astype(np.float32))
+        # cv2.waitKey(0)
 
-        # print(data["depth"][0].dtype)
-        # # print(data["depth"][0])
-        # print(np.min(data["depth"][0]), np.max(data["depth"][0]))
-        # plt.figure()
-        # plt.imshow(data["colors"][0])
-        # plt.show()
+        # data["seg_0"] = data["cp_main_obj_segmaps"][0].astype(bool)
+        # data["seg_1"] = data["cp_main_obj_segmaps"][1].astype(bool)
+
+        data["depth"][0] = data["depth"][0] / 1000
+        data["depth"][1] = data["depth"][1] / 1000
+
+        data["depth"][0] = data["depth"][0] * (data["depth"][0] < 5.0) * data["seg_0"]
+        data["depth"][1] = data["depth"][1] * (data["depth"][1] < 5.0) * data["seg_1"]
         
         data.update({
-            "rgb_0": data["colors"][0],
-            "rgb_1": data["colors"][1],
-            "depth_0": data["depth"][0] * data["cp_main_obj_segmaps"][0] * 1000,
-            "depth_1": data["depth"][1] * data["cp_main_obj_segmaps"][1] * 1000
+            "rgb_0": data["colors"][0].astype(np.float32),
+            "rgb_1": data["colors"][1].astype(np.float32),
+            "depth_0": data["depth"][0].astype(np.float32),
+            "depth_1": data["depth"][1].astype(np.float32)
         })
+
         data.pop("colors")
         data.pop("depth")
+        data.pop("cp_main_obj_segmaps")
 
         # plt.figure()
-        # plt.imshow(data["rgb_0"])
+        # plt.imshow(data["rgb_1"]/255)
+        # plt.figure()
+        # plt.imshow(data["depth_1"])
         # plt.show()
-
+        
         return data
     
     def load_random_scene(self):
         self.idx = np.random.randint(0, len(self))
         scene_dir = os.path.join(self.dataset_dir, f"scene_{str(self.idx).zfill(7)}")
         return self.load_scene(scene_dir)
-    
-    def check_matches(self, crop_data, T_01):
-        obj_indices_0 = get_keypoint_indices(crop_data["seg_0"], self.coarse_grid_factor)
-
-        # grid = np.zeros(crop_data["depth_0"].shape)
-        # grid[obj_indices_0[:,1], obj_indices_0[:,0]] = 1
-        # plt.figure()
-        # plt.imshow(grid)
-        # plt.show()
-
-        assert isinstance(obj_indices_0, np.ndarray), 'Keypoints must be stored in a numpy array'
-        assert obj_indices_0.dtype == np.int64, 'Keypoints should be integers'
-        assert len(obj_indices_0.shape) == 2, 'Keypoints must be stored in a 2-dimensional array'
-        assert obj_indices_0.shape[1] == 2, 'The x and y position of all keypoints must be specified'
-        matches_data = estimate_cropped_correspondences(obj_indices_0,
-                                                        crop_data["depth_0"].copy(),
-                                                        crop_data["depth_1"].copy(),
-                                                        T_01.copy(),
-                                                        crop_data["intrinsics_0"].copy(),
-                                                        crop_data["intrinsics_1"].copy(),
-                                                        depth_rejection_threshold=0.003,
-                                                        depth_units='mm')
-        crop_data["keypoints_1"], crop_data["valid_correspondence"] = matches_data[:,:2], matches_data[:,2].astype(bool)
-
-        # plt.figure()
-        # plt.imshow(crop_data["depth_0"] * crop_data["seg_0"])
-        # # plt.imshow(crop_data["depth_0"])
-        # plt.figure()
-        # plt.imshow(crop_data["gray_1"][0] * crop_data["seg_1"])
-
-        filtered_keypoints_0 = obj_indices_0[crop_data["valid_correspondence"]]
-        filtered_keypoints_1 = crop_data["keypoints_1"][crop_data["valid_correspondence"]]
-        # plot_matches(
-        #     crop_data["gray_0"] * crop_data["seg_0"],
-        #     filtered_keypoints_0,
-        #     crop_data["gray_1"] * crop_data["seg_1"],
-        #     filtered_keypoints_1,
-        #     num_points_to_plot=-1,
-        #     shuffle_matches=True
-        # )
     
     def get_common_objs(self, instance_attribute_map_0, instance_attribute_map_1):
         objs_1 = [instance['name'] for instance in instance_attribute_map_1 if instance['name'] != 'Floor']
@@ -169,11 +131,11 @@ class BlenderDataset(Dataset):
 
         rgb0 = data["rgb_0"].copy()
         depth0 = data["depth_0"].copy()
-        segmap0 = data["cp_main_obj_segmaps"][0].copy()
+        segmap0 = data["seg_0"].copy()
 
         rgb1 = data["rgb_1"].copy()
         depth1 = data["depth_1"].copy()
-        segmap1 = data["cp_main_obj_segmaps"][1].copy()
+        segmap1 = data["seg_1"].copy()
 
         bbox0 = bbox_from_mask(segmap0, margin=self.crop_margin)
         bbox1 = bbox_from_mask(segmap1, margin=self.crop_margin)
@@ -202,15 +164,13 @@ class BlenderDataset(Dataset):
         return crop_data
 
     def get_rel_transformation(self, data):
-        # T_C0 = pose_inv(data["T_WC_opencv"]) @ data["T_WO_frame_0"]
-        # T_1C = pose_inv(data["T_WO_frame_1"]) @ data["T_WC_opencv"]
-        # T_C0C1 = T_C0 @ T_1C
-        # T_delta = T_C0 @ T_1C
-        # return T_C0C1, pose_inv(T_C0C1), T_delta
-        T_C0 = pose_inv(data["T_WC_opencv"]) @ data["T_WO_frame_0"]
-        T_1C = pose_inv(data["T_WO_frame_1"]) @ data["T_WC_opencv"]
-        T_C0C1 = T_C0 @ T_1C
-        return T_C0C1, pose_inv(T_C0C1)
+        T_WC = data["T_WC_opencv"]
+        T_CW = pose_inv(T_WC)
+        T_C1 = T_CW @ data["T_WO_frame_1"]
+        T_0C = pose_inv(data["T_WO_frame_0"]) @ T_WC
+        T_delta_cam = T_C1 @ T_0C
+        T_delta_base = T_WC @ T_delta_cam @ T_CW
+        return T_delta_base
 
     def __getitem__(self, idx):
         # Check length of Dataset is respected
@@ -219,22 +179,15 @@ class BlenderDataset(Dataset):
         if self.idx >= len(self):
             raise IndexError
 
-        object_is_visible = False
-        while not object_is_visible:
-            try:
-                # Get all the data for current scene
-                scene_dir = self.scene_names[self.idx]
-                data = self.load_scene(scene_dir)
-                crop_data = self.crop_object(data)
-                T_01, T_10 = self.get_rel_transformation(data)
-                self.check_matches(crop_data, T_01)
-                if np.sum(crop_data["valid_correspondence"]) >= 200: ##############################
-                    object_is_visible = True
-                else:
-                    self.idx = np.random.randint(0, len(self))
-            except Exception as e:
-                logger.warning(f"The following exception was found: \n{e}")
-                self.idx = np.random.randint(0, len(self))
+        try:
+            # Get all the data for current scene
+            scene_dir = self.scene_names[self.idx]
+            data = self.load_scene(scene_dir)
+            crop_data = self.crop_object(data)
+            T_delta = self.get_rel_transformation(data)
+        except Exception as e:
+            logger.warning(f"The following exception was found: \n{e}")
+            self.idx = np.random.randint(0, len(self))
 
         if self.segment_object:
             crop_data["gray_0"] *= crop_data["seg_0"]
@@ -250,8 +203,7 @@ class BlenderDataset(Dataset):
             'depth0': crop_data["depth_0"],   # (h, w)
             'image1': crop_data["gray_1"].astype(np.float32),
             'depth1': crop_data["depth_1"], # NOTE: maybe int32?
-            'T_0to1': T_10.astype(np.float32),   # (4, 4)
-            'T_1to0': T_01.astype(np.float32),
+            'T_apriltag_gt': T_delta,
             'K0': crop_data["intrinsics_0"].astype(np.float32),  # (3, 3)
             'K1': crop_data["intrinsics_1"].astype(np.float32),
             'dataset_name': 'Blender',
@@ -272,7 +224,7 @@ class BlenderDataset(Dataset):
 
 if __name__ == "__main__":
 
-    dataset = BlenderDataset(use_masks=True, resize_modality=5)
+    dataset = RealWorldDataset(use_masks=True, resize_modality=5)
 
     print(f"\nThe dataset length is: {len(dataset)}")
 
