@@ -69,7 +69,7 @@ class BlenderDataset(Dataset):
         self.augmentator = DataAugmentator()
 
     def __len__(self):
-        return len(self.scene_names)
+        return len(self.scene_names) * 2
 
     def load_scene(self, scene_dir) -> dict:
         with open(scene_dir, "rb") as data_file:
@@ -215,9 +215,9 @@ class BlenderDataset(Dataset):
     def __getitem__(self, idx):
         # Check length of Dataset is respected
         # self.idx = np.random.randint(0,2)
-        self.idx = idx
-        if self.idx >= len(self):
+        if idx >= len(self):
             raise IndexError
+        self.idx = idx // 2
 
         object_is_visible = False
         while not object_is_visible:
@@ -231,10 +231,13 @@ class BlenderDataset(Dataset):
                 if np.sum(crop_data["valid_correspondence"]) >= 200: ##############################
                     object_is_visible = True
                 else:
-                    self.idx = np.random.randint(0, len(self))
+                    print("wrong")
+                    idx = np.random.randint(0, len(self))
+                    self.idx = idx // 2
             except Exception as e:
                 logger.warning(f"The following exception was found: \n{e}")
-                self.idx = np.random.randint(0, len(self))
+                idx = np.random.randint(0, len(self))
+                self.idx = idx // 2
 
         if self.segment_object:
             crop_data["gray_0"] *= crop_data["seg_0"]
@@ -245,28 +248,53 @@ class BlenderDataset(Dataset):
         crop_data["depth_0"] = crop_data["depth_0"].astype(np.float16) / 1e3
         crop_data["depth_1"] = crop_data["depth_1"].astype(np.float16) / 1e3
 
-        data = {
-            'image0': crop_data["gray_0"].astype(np.float32),   # (1, h, w)
-            'depth0': crop_data["depth_0"],   # (h, w)
-            'image1': crop_data["gray_1"].astype(np.float32),
-            'depth1': crop_data["depth_1"], # NOTE: maybe int32?
-            'T_0to1': T_10.astype(np.float32),   # (4, 4)
-            'T_1to0': T_01.astype(np.float32),
-            'K0': crop_data["intrinsics_0"].astype(np.float32),  # (3, 3)
-            'K1': crop_data["intrinsics_1"].astype(np.float32),
-            'dataset_name': 'Blender',
-            'scene_id': self.idx,
-            'pair_id': 0,
-            'pair_names': (f"scene_{self.idx}_0",
-                           f"scene_{self.idx}_1")
-        }
-        if self.use_masks:
-            crop_data["seg_0"], crop_data["seg_1"] = torch.from_numpy(crop_data["seg_0"]), torch.from_numpy(crop_data["seg_1"])
-            [ts_mask_0, ts_mask_1] = F.interpolate(torch.stack([crop_data["seg_0"], crop_data["seg_1"]], dim=0)[None].float(),
-                                                   scale_factor=self.coarse_scale,
-                                                   mode='nearest',
-                                                   recompute_scale_factor=False)[0].bool()
-            data.update({'mask0': ts_mask_0, 'mask1': ts_mask_1})
+        if idx % 2 == 0:
+            data = {
+                'image0': crop_data["gray_0"].astype(np.float32),   # (1, h, w)
+                'depth0': crop_data["depth_0"],   # (h, w)
+                'image1': crop_data["gray_1"].astype(np.float32),
+                'depth1': crop_data["depth_1"], # NOTE: maybe int32?
+                'T_0to1': T_10.astype(np.float32),   # (4, 4)
+                'T_1to0': T_01.astype(np.float32),
+                'K0': crop_data["intrinsics_0"].astype(np.float32),  # (3, 3)
+                'K1': crop_data["intrinsics_1"].astype(np.float32),
+                'dataset_name': 'Blender',
+                'scene_id': self.idx,
+                'pair_id': 0,
+                'pair_names': (f"scene_{self.idx}_0",
+                            f"scene_{self.idx}_1")
+            }
+            if self.use_masks:
+                crop_data["seg_0"], crop_data["seg_1"] = torch.from_numpy(crop_data["seg_0"]), torch.from_numpy(crop_data["seg_1"])
+                [ts_mask_0, ts_mask_1] = F.interpolate(torch.stack([crop_data["seg_0"], crop_data["seg_1"]], dim=0)[None].float(),
+                                                    scale_factor=self.coarse_scale,
+                                                    mode='nearest',
+                                                    recompute_scale_factor=False)[0].bool()
+                data.update({'mask0': ts_mask_0, 'mask1': ts_mask_1})
+
+        else:
+            data = {
+                'image0': crop_data["gray_1"].astype(np.float32),   # (1, h, w)
+                'depth0': crop_data["depth_1"],   # (h, w)
+                'image1': crop_data["gray_0"].astype(np.float32),
+                'depth1': crop_data["depth_0"], # NOTE: maybe int32?
+                'T_0to1': T_01.astype(np.float32),   # (4, 4)
+                'T_1to0': T_10.astype(np.float32),
+                'K0': crop_data["intrinsics_1"].astype(np.float32),  # (3, 3)
+                'K1': crop_data["intrinsics_0"].astype(np.float32),
+                'dataset_name': 'Blender',
+                'scene_id': self.idx,
+                'pair_id': 0,
+                'pair_names': (f"scene_{self.idx}_1",
+                            f"scene_{self.idx}_0")
+            }
+            if self.use_masks:
+                crop_data["seg_1"], crop_data["seg_0"] = torch.from_numpy(crop_data["seg_0"]), torch.from_numpy(crop_data["seg_1"])
+                [ts_mask_0, ts_mask_1] = F.interpolate(torch.stack([crop_data["seg_0"], crop_data["seg_1"]], dim=0)[None].float(),
+                                                    scale_factor=self.coarse_scale,
+                                                    mode='nearest',
+                                                    recompute_scale_factor=False)[0].bool()
+                data.update({'mask0': ts_mask_0, 'mask1': ts_mask_1})
 
         return data
 
