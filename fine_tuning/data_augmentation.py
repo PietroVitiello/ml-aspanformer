@@ -23,13 +23,12 @@ class DataAugmentator():
             # T.ColorJitter(brightness=1, contrast=0, saturation=0, hue=0),
             # T.GaussianBlur(kernel_size=5, sigma=(0.1, 0.5)),
             T.GaussianBlur(kernel_size=5, sigma=(1, 2)),
-            T.ElasticTransform(alpha=50., sigma=5.),
             T.RandomInvert(p=1),
             T.RandomPosterize(bits=3, p=1),
             T.RandomSolarize(threshold=70, p=1),
             # T.RandomEqualize(p=1)
         ]
-        self.rgb_p = np.array([0.5, 0.35, 0.01, 0.04, 0.09, 0.01]) * p_rgb
+        self.rgb_p = np.array([0.5, 0.35, 0.04, 0.1, 0.01]) * p_rgb
         # self.rgb_p = np.zeros(7)
         # self.rgb_p[6] = 1
         # self.depth_p = np.array([1]) 
