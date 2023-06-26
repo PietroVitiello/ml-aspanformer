@@ -140,7 +140,7 @@ _CN.TRAINER.SCHEDULER_INTERVAL = 'epoch'    # [epoch, step]
 _CN.TRAINER.MSLR_MILESTONES = [3, 6, 9, 12]  # MSLR: MultiStepLR
 _CN.TRAINER.MSLR_GAMMA = 0.5
 ###### Changed ###### _CN.TRAINER.COSA_TMAX = 30  # COSA: CosineAnnealing
-_CN.TRAINER.COSA_TMAX = 90580  # COSA: CosineAnnealing
+_CN.TRAINER.COSA_TMAX = 362320  # COSA: CosineAnnealing
 _CN.TRAINER.ELR_GAMMA = 0.999992  # ELR: ExponentialLR, this value for 'step' interval
 
 # plotting related

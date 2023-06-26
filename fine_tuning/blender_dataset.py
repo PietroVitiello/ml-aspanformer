@@ -231,7 +231,7 @@ class BlenderDataset(Dataset):
                 if np.sum(crop_data["valid_correspondence"]) >= 200: ##############################
                     object_is_visible = True
                 else:
-                    print("wrong")
+                    # print("too little matches")
                     idx = np.random.randint(0, len(self))
                     self.idx = idx // 2
             except Exception as e:

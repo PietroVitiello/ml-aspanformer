@@ -33,5 +33,5 @@ cd ..
 # python fine_tune.py --gpus 5 -name hpc_multi_1 -bs 7 -lr 6e-6 -resize_m 5 -mask -seg -wandb
 # python fine_tune.py --gpus 5 -name aspan_multi_2 -bs 7 -lr 6e-6 -resize_m 5 -mask -seg --log_every_n_steps 50 --exp_name hpc_multi_2 -wandb
 # python fine_tune.py --gpus 5 -name aspan_multi_4dof_1 -bs 7 -lr 3e-5 -resize_m 5 -mask -seg --log_every_n_steps 50 --exp_name aspan_multi_4dof_1 -wandb
-python fine_tune.py --gpus 5 -name aspan_m_ind_4dof_3 -bs 6 -lr 3e-5 -resize_m 5 -mask -seg --log_every_n_steps 50 --exp_name aspan_m_ind_4dof_3 -wandb --ckpt_path weights/indoor.ckpt
+python fine_tune.py --gpus 5 -name aspan_m_ind_4dof_4 -bs 6 -lr 4e-5 -resize_m 5 -mask -seg --log_every_n_steps 50 --exp_name aspan_m_ind_4dof_4 -wandb --ckpt_path weights/indoor.ckpt
 echo "Done"

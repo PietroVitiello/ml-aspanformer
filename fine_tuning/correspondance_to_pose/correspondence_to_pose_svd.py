@@ -80,10 +80,6 @@ class CorrespondenceToPoseSVD(Correspondence2PoseBase):
         T_preds = np.zeros((data["depth0"].shape[0],4,4))
         correspondence_estimation_result = create_corrEst_result(data)
 
-        print(data.keys())
-
-        print(data['depth0'].shape)
-
         for i in range(data["depth0"].shape[0]):
             correspondence_estimation_result.points1 = data['mkpts0_f'][data["m_bids"]==i].cpu().numpy().astype(int)
             correspondence_estimation_result.points2 = data['mkpts1_f'][data["m_bids"]==i].cpu().numpy().astype(int)    
