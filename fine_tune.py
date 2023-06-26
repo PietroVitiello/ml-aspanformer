@@ -201,7 +201,8 @@ def main():
         reload_dataloaders_every_epoch=False,  # avoid repeated samples!
         weights_summary='full',
         profiler=profiler,
-        val_check_interval=training_validation_interval)
+        val_check_interval=training_validation_interval,
+        num_sanity_val_steps=15)
     loguru_logger.info(f"Trainer initialized!")
     loguru_logger.info(f"Start training!")
     trainer.fit(model, datamodule=data_module)
